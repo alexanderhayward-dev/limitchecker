@@ -9,6 +9,7 @@ import os
 import pty
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -20,7 +21,12 @@ from dataclasses import asdict, dataclass
 from typing import Callable
 
 
-CODEX_BIN = "/Applications/ChatGPT.app/Contents/Resources/codex"
+CODEX_BIN_CANDIDATES = (
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+    os.path.expanduser("~/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex"),
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    os.path.expanduser("~/Applications/ChatGPT.app/Contents/Resources/codex"),
+)
 CLAUDE_BIN = os.path.expanduser("~/.local/bin/claude")
 PROBE_DIRECTORY = os.path.join(tempfile.gettempdir(), "limitchecker-cli-probe")
 
@@ -317,12 +323,21 @@ def probe_claude() -> ServiceUsage:
         return ServiceUsage("claude", False, [], f"{type(exc).__name__}: {exc}")
 
 
+def resolve_codex_bin() -> str | None:
+    for candidate in CODEX_BIN_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    return shutil.which("codex")
+
+
 def probe_codex() -> ServiceUsage:
-    if not os.path.exists(CODEX_BIN):
-        return ServiceUsage("codex", False, [], f"Codex binary not found at {CODEX_BIN}.")
+    codex_bin = resolve_codex_bin()
+    if codex_bin is None:
+        checked = ", ".join(CODEX_BIN_CANDIDATES)
+        return ServiceUsage("codex", False, [], f"Codex binary not found in {checked} or on PATH.")
     try:
         _, text = run_tui_probe(
-            [CODEX_BIN, "--no-alt-screen"],
+            [codex_bin, "--no-alt-screen"],
             "/status",
             wait_for="Ask Codex to do anything",
             dialog_handlers=[

@@ -480,6 +480,8 @@ enum Executables {
     static func codex() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return find([
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+            "\(home)/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
             "/Applications/ChatGPT.app/Contents/Resources/codex",
             "\(home)/Applications/ChatGPT.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",

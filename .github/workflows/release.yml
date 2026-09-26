@@ -55,6 +55,9 @@ jobs:
           archive="dist/LimitChecker-$version-macos-universal.zip"
           ditto --norsrc -c -k --keepParent dist/LimitChecker.app "$archive"
           ./Scripts/create-dmg.sh "$version"
+          for asset in "LimitChecker-$version-macos-universal.zip" "LimitChecker-$version-macos-universal.dmg"; do
+            (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
+          done
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,9 +71,12 @@ jobs:
             security_note+=$'\n\n## Important: first launch on macOS\n\nLimitChecker is a free personal open-source project. I have chosen not to maintain a paid Apple Developer Program membership, so Apple has not signed or notarized this download.\n\nAfter the first blocked launch, open **System Settings > Privacy & Security** and choose **Open Anyway** for LimitChecker. You only need to do this once. Only proceed when you downloaded the app from this repository and trust it.\n\nThis release is ad-hoc signed and not notarized by Apple.'
           fi
           security_note+=$'\n\nThe DMG opens with a drag-and-drop shortcut to Applications. The ZIP is available as an alternative.'
+          security_note+=$'\n\nEach download ships a `.sha256` file beside it. Verify one with `shasum -c <file>.sha256`. The in-app updater checks the ZIP against its digest before installing.'
           gh release create "$GITHUB_REF_NAME" \
             "dist/LimitChecker-$version-macos-universal.zip" \
+            "dist/LimitChecker-$version-macos-universal.zip.sha256" \
             "dist/LimitChecker-$version-macos-universal.dmg" \
+            "dist/LimitChecker-$version-macos-universal.dmg.sha256" \
             --title "LimitChecker $version" \
             --notes "$security_note" \
             --generate-notes

@@ -55,13 +55,23 @@ Releases state whether they are notarized; see [release instructions](docs/RELEA
 
 ## Updates
 
-The app checks the GitHub release feed once a day and marks the menu bar gauge
-with a small dot when a newer version exists. Opening the menu then shows the
-new version number and an update button. A manual check and a switch for the
-automatic one live in the `...` menu next to the refresh button.
+The app checks the GitHub release feed once a day. A newer version marks the
+menu bar gauge with a small dot, and the menu shows the new version number.
+
+By default the app then installs the update itself and restarts: it downloads
+the ZIP, checks it against the `.sha256` digest published with the release,
+verifies the bundle identifier, version and code signature, and only then
+replaces itself. A failed digest aborts the installation, and a failed swap
+restores the previous version, so a bad download cannot leave you without a
+working app. Updates never install without a verified digest; such a release is
+offered as a manual download instead.
+
+The `...` menu next to the refresh button holds a manual check and switches for
+**Automatisch nach Updates suchen** and **Updates automatisch installieren**.
+Turn the second one off to get a button instead of a self-installing update.
 
 The check is unauthenticated and sends no usage data; see the
-[privacy note](docs/PRIVACY.md) for details and how to turn it off.
+[privacy note](docs/PRIVACY.md) for what it transmits.
 
 ## Privacy and security
 

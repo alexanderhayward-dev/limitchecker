@@ -44,3 +44,12 @@ persist between checks.
 Turn the check off under the `...` menu in the app: **Automatisch nach Updates
 suchen**. With it off, the app makes no network requests at all unless you press
 **Jetzt nach Updates suchen**.
+
+### Installing an update
+
+When an update is installed — automatically, or by pressing the button if
+**Updates automatisch installieren** is off — the app downloads two files from
+the same release: the ZIP archive and its `.sha256` digest. Both are public
+GitHub download URLs and the requests carry no identifier beyond the
+`User-Agent`. Nothing is uploaded. The download is verified against the digest
+before it replaces the installed app.

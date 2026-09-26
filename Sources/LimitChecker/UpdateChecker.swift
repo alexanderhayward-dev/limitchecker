@@ -78,6 +78,7 @@ final class UpdateStore: ObservableObject {
     @Published private(set) var availableRelease: AppRelease?
     @Published private(set) var isChecking = false
     @Published private(set) var lastCheckError: String?
+    @Published private(set) var installPhase: InstallPhase = .idle
     @Published var automaticChecksEnabled: Bool {
         didSet {
             UserDefaults.standard.set(automaticChecksEnabled, forKey: Keys.automaticChecks)
@@ -86,9 +87,15 @@ final class UpdateStore: ObservableObject {
             }
         }
     }
+    @Published var automaticInstallEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(automaticInstallEnabled, forKey: Keys.automaticInstall)
+        }
+    }
 
     private enum Keys {
         static let automaticChecks = "UpdatesAutomaticChecksEnabled"
+        static let automaticInstall = "UpdatesAutomaticInstallEnabled"
         static let lastCheck = "UpdatesLastCheckDate"
     }
 
@@ -97,6 +104,8 @@ final class UpdateStore: ObservableObject {
     private var lastCheckedAt: Date?
     private var pollTask: Task<Void, Never>?
     private var didStart = false
+    /// Guards against re-running a failing install on every poll.
+    private var autoInstallAttemptedTag: String?
 
     init() {
         let defaults = UserDefaults.standard
@@ -104,6 +113,11 @@ final class UpdateStore: ObservableObject {
             automaticChecksEnabled = true
         } else {
             automaticChecksEnabled = defaults.bool(forKey: Keys.automaticChecks)
+        }
+        if defaults.object(forKey: Keys.automaticInstall) == nil {
+            automaticInstallEnabled = true
+        } else {
+            automaticInstallEnabled = defaults.bool(forKey: Keys.automaticInstall)
         }
         lastCheckedAt = defaults.object(forKey: Keys.lastCheck) as? Date
     }
@@ -114,6 +128,12 @@ final class UpdateStore: ObservableObject {
 
     var currentVersionText: String {
         AppVersion.current?.description ?? "unbekannt"
+    }
+
+    /// A release without a published digest cannot be verified, so it is offered
+    /// as a manual download instead of a one-click install.
+    var canInstall: Bool {
+        availableRelease?.archive?.checksumURL != nil
     }
 
     var lastCheckText: String? {
@@ -141,6 +161,42 @@ final class UpdateStore: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func installOrOpenPage() {
+        guard canInstall else {
+            openReleasePage()
+            return
+        }
+        install()
+    }
+
+    private func installIfWanted() {
+        guard automaticInstallEnabled,
+              canInstall,
+              !installPhase.isBusy,
+              let tag = availableRelease?.tag,
+              autoInstallAttemptedTag != tag
+        else { return }
+        autoInstallAttemptedTag = tag
+        install()
+    }
+
+    func install() {
+        guard let release = availableRelease, !installPhase.isBusy else { return }
+        installPhase = .downloading
+        Task {
+            do {
+                try await UpdateInstaller.install(release: release) { [weak self] phase in
+                    self?.installPhase = phase
+                }
+                // The helper is waiting for this process to exit before it swaps
+                // the bundle and reopens the app.
+                NSApplication.shared.terminate(nil)
+            } catch {
+                installPhase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
     private func checkIfDue() async {
         guard automaticChecksEnabled else { return }
         if let lastCheckedAt, Date.now.timeIntervalSince(lastCheckedAt) < Self.checkInterval {
@@ -165,6 +221,7 @@ final class UpdateStore: ObservableObject {
                 return
             }
             availableRelease = release.version > current ? release : nil
+            installIfWanted()
         } catch {
             lastCheckError = error.localizedDescription
         }
@@ -180,8 +237,17 @@ enum UpdateFeed {
 
     private static let session = URLSession(configuration: .ephemeral)
 
+    /// Development hook: point the feed at a local fixture to exercise the
+    /// installer without publishing a release. Unset in normal use.
+    private static var endpoint: URL {
+        if let override = ProcessInfo.processInfo.environment["LIMITCHECKER_UPDATE_FEED"],
+           let url = URL(string: override) {
+            return url
+        }
+        return URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    }
+
     static func latestRelease() async throws -> AppRelease {
-        let endpoint = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
         var request = URLRequest(url: endpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
@@ -248,21 +314,42 @@ struct UpdateBanner: View {
 
     var body: some View {
         if let release = store.availableRelease {
-            HStack(spacing: 9) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Version \(release.version.description) verfügbar")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Installiert: \(store.currentVersionText)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 9) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Version \(release.version.description) verfügbar")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Installiert: \(store.currentVersionText)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if store.installPhase.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button(store.canInstall ? "Installieren" : "Herunterladen") {
+                            store.installOrOpenPage()
+                        }
+                        .controlSize(.small)
+                    }
                 }
-                Spacer()
-                Button("Aktualisieren") {
-                    store.openReleasePage()
+                if let label = store.installPhase.label {
+                    HStack(spacing: 8) {
+                        Text(label)
+                            .font(.caption)
+                            .foregroundStyle(store.installPhase.isFailure ? Color.orange : Color.secondary)
+                        if store.installPhase.isFailure {
+                            Button("Manuell herunterladen") {
+                                store.openReleasePage()
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+                    }
                 }
-                .controlSize(.small)
             }
         }
     }
@@ -278,6 +365,8 @@ struct UpdateMenu: View {
             }
             .disabled(store.isChecking)
             Toggle("Automatisch nach Updates suchen", isOn: $store.automaticChecksEnabled)
+            Toggle("Updates automatisch installieren", isOn: $store.automaticInstallEnabled)
+                .disabled(!store.automaticChecksEnabled)
             if let lastCheckText = store.lastCheckText {
                 Divider()
                 Text(lastCheckText)

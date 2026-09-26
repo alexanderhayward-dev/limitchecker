@@ -7,12 +7,24 @@
 ./Scripts/create-release.sh 0.1.0
 ```
 
-This creates a universal ZIP and a DMG installer in `dist/`. The DMG contains
-the app plus an `Applications` shortcut for drag-and-drop installation. Both
-are valid GitHub downloads. macOS can show a one-time Gatekeeper warning
-because the app is not associated with an identified Apple developer; users
-who trust the source can choose Finder's **Open** command or allow it in System
-Settings.
+This creates a universal ZIP and a DMG installer in `dist/`, each with a
+`.sha256` file beside it. The DMG contains the app plus an `Applications`
+shortcut for drag-and-drop installation. Both are valid GitHub downloads. macOS
+can show a one-time Gatekeeper warning because the app is not associated with an
+identified Apple developer; users who trust the source can choose Finder's
+**Open** command or allow it in System Settings.
+
+## Checksums are mandatory
+
+The release workflow uploads the `.sha256` files along with the downloads, and
+the in-app updater refuses to install a release whose ZIP has no published
+digest — it offers a manual download instead. A release published without those
+assets therefore reaches existing users as a notification only. Verify a
+download by hand with:
+
+```zsh
+shasum -c LimitChecker-<version>-macos-universal.zip.sha256
+```
 
 ## Developer-ID signing and notarization
 

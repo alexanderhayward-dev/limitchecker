@@ -53,6 +53,16 @@ other service's last valid values.
 
 Releases state whether they are notarized; see [release instructions](docs/RELEASE.md).
 
+## Updates
+
+The app checks the GitHub release feed once a day and marks the menu bar gauge
+with a small dot when a newer version exists. Opening the menu then shows the
+new version number and an update button. A manual check and a switch for the
+automatic one live in the `...` menu next to the refresh button.
+
+The check is unauthenticated and sends no usage data; see the
+[privacy note](docs/PRIVACY.md) for details and how to turn it off.
+
 ## Privacy and security
 
 All limit reads happen locally. LimitChecker starts the installed CLIs inside a

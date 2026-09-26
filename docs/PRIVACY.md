@@ -27,3 +27,20 @@ LimitChecker has no first-party server and does not send data to a service run
 by this project. The installed Claude Code and Codex CLIs may contact their own
 providers as part of their normal startup and authentication behavior. Their
 privacy policies apply to that traffic.
+
+### Update check
+
+Once a day, and whenever you ask for it explicitly, the app requests the public
+GitHub release feed of this repository to learn whether a newer version exists:
+
+`https://api.github.com/repos/alexanderhayward-dev/limitchecker/releases/latest`
+
+The request is unauthenticated and carries no identifier: only the standard
+`User-Agent` naming the app and its version. GitHub sees the originating IP
+address, as with any web request. No usage data, limit values, or account
+information leave the Mac. The session is ephemeral, so no cookies or caches
+persist between checks.
+
+Turn the check off under the `...` menu in the app: **Automatisch nach Updates
+suchen**. With it off, the app makes no network requests at all unless you press
+**Jetzt nach Updates suchen**.

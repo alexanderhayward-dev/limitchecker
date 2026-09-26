@@ -4,12 +4,13 @@ import SwiftUI
 @main
 struct LimitCheckerApp: App {
     @StateObject private var usageStore = UsageStore()
+    @StateObject private var updateStore = UpdateStore()
 
     var body: some Scene {
         MenuBarExtra {
-            LimitMenuView(store: usageStore)
+            LimitMenuView(store: usageStore, updateStore: updateStore)
         } label: {
-            MenuBarLabel(store: usageStore)
+            MenuBarLabel(store: usageStore, updateStore: updateStore)
         }
         .menuBarExtraStyle(.window)
     }
@@ -17,6 +18,7 @@ struct LimitCheckerApp: App {
 
 private struct MenuBarLabel: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject var updateStore: UpdateStore
 
     var body: some View {
         HStack(spacing: 3) {
@@ -25,14 +27,23 @@ private struct MenuBarLabel: View {
                 Text(summary)
                     .monospacedDigit()
             }
+            if updateStore.availableRelease != nil {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 5))
+                    .accessibilityLabel("Update verfügbar")
+            }
         }
         .accessibilityLabel("LimitChecker")
-        .task { store.start() }
+        .task {
+            store.start()
+            updateStore.start()
+        }
     }
 }
 
 private struct LimitMenuView: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject var updateStore: UpdateStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -51,6 +62,12 @@ private struct LimitMenuView: View {
                     .buttonStyle(.borderless)
                     .help("Aktualisieren")
                 }
+                UpdateMenu(store: updateStore)
+            }
+
+            if updateStore.availableRelease != nil {
+                UpdateBanner(store: updateStore)
+                Divider()
             }
 
             serviceSection(title: "Claude Code", usage: store.claude, issue: store.claudeIssue)
@@ -74,7 +91,10 @@ private struct LimitMenuView: View {
         }
         .padding(16)
         .frame(width: 430)
-        .onAppear { store.start() }
+        .onAppear {
+            store.start()
+            updateStore.start()
+        }
     }
 
     @ViewBuilder

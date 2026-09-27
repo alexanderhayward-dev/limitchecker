@@ -22,10 +22,13 @@ private struct MenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "gauge.with.dots.needle.50percent")
+            // The percentages identify the app on their own; the gauge only
+            // holds the place while no service has reported a value yet.
             if let summary = store.menuBarSummary {
                 Text(summary)
                     .monospacedDigit()
+            } else {
+                Image(systemName: "gauge.with.dots.needle.50percent")
             }
             if updateStore.availableRelease != nil {
                 Image(systemName: "circle.fill")

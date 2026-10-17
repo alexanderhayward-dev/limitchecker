@@ -420,7 +420,7 @@ enum ScriptRunner {
                     activeDialog = nil
                     readyAt = nil
                 }
-            } else if !sentCommand && plainOutput.contains(readyPrompt) {
+            } else if !sentCommand && compact.contains(Terminal.compact(readyPrompt)) {
                 if readyAt == nil {
                     readyAt = .now
                 } else if let readyAt, Date.now.timeIntervalSince(readyAt) >= 2 {
@@ -577,7 +577,13 @@ func probeClaude() -> ServiceUsage {
             command: [executable],
             slashCommand: "/usage",
             readyPrompt: "Claude Code",
-            dialogs: [DialogHandler(prompt: "Quick safety check", response: [Array("\u{001B}[B".utf8), Array("\r".utf8)])],
+            dialogs: [
+                DialogHandler(prompt: "Quick safety check", response: [Array("\u{001B}[B".utf8), Array("\r".utf8)]),
+                // Shown at startup when the Chrome extension is installed. Esc is the
+                // dialog's explicit "keep browser tools off", independent of where the
+                // cursor starts.
+                DialogHandler(prompt: "Claude in Chrome extension detected", response: [Array("\u{001B}".utf8)]),
+            ],
             silenceTimeout: 8
         )
         return Parsers.claude(text)

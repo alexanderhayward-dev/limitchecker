@@ -173,7 +173,7 @@ def run_tui_probe(
                 ready_at = None
                 continue
 
-            if not sent and (wait_for is None or wait_for in plain):
+            if not sent and (wait_for is None or compact_for_matching(wait_for) in compact_for_matching(plain)):
                 if ready_at is None:
                     ready_at = time.monotonic()
                     continue
@@ -312,7 +312,10 @@ def probe_claude() -> ServiceUsage:
             [claude_bin],
             "/usage",
             wait_for="Claude Code",
-            dialog_handlers=[("Quick safety check", [b"\x1b[B", b"\r"])],
+            dialog_handlers=[
+                ("Quick safety check", [b"\x1b[B", b"\r"]),
+                ("Claude in Chrome extension detected", b"\x1b"),
+            ],
             timeout=28,
             after_command=confirm_slash_command,
         )

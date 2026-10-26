@@ -63,6 +63,8 @@ enum Theme {
     static let barNeutral = Color.primary.opacity(0.55)
     static let gridline = Color.secondary.opacity(0.25)
     static let leader = Color.secondary.opacity(0.5)
+    /// Line opacity across time without measurements, usually a sleeping Mac.
+    static let bridgeOpacity = 0.35
 
     /// Secondary text. The system's secondary label measured 3.9:1 on a light module;
     /// this tone measured 5.6:1 light and 5.9:1 dark.
@@ -328,17 +330,21 @@ private struct LimitProgressBar: View {
 }
 
 private struct HistorySeries {
+    enum Marker { case circle, square }
+
     let name: String
     let color: Color
-    /// Distinguishes the series without colour; empty means a solid line.
-    let dash: [CGFloat]
+    /// Tells the series apart without colour, at the line end and next to the name.
+    let marker: Marker
     let values: [(Date, Int)]
 }
 
 private enum HistoryWindow {
     static let span: TimeInterval = 12 * 60 * 60
-    /// Longer gaps (the Mac was asleep) break the line instead of bridging them.
-    static let maxGap: TimeInterval = 15 * 60
+    /// The chart shows the rough course, one value per bucket; per-minute steps are noise.
+    static let bucket: TimeInterval = 10 * 60
+    /// Longer stretches without a measurement (the Mac was asleep) are bridged faintly.
+    static let maxGap: TimeInterval = 25 * 60
     /// Rises in percentage points that count as a reset: anywhere, or ending on 100 %.
     static let resetRise = 30
     static let resetRiseToFull = 10
@@ -357,13 +363,13 @@ private struct UsageHistoryView: View {
             HistorySeries(
                 name: "Claude",
                 color: Theme.claudeSeries,
-                dash: [],
+                marker: .circle,
                 values: visible.compactMap { point in point.claudeSessionPercentLeft.map { (point.timestamp, $0) } }
             ),
             HistorySeries(
                 name: "Codex",
                 color: Theme.codexSeries,
-                dash: [5, 3],
+                marker: .square,
                 values: visible.compactMap { point in point.codexFiveHourPercentLeft.map { (point.timestamp, $0) } }
             ),
         ]
@@ -427,9 +433,6 @@ private struct HistoryChart: View {
             }
             let resets = Self.resetCount(in: item.values)
             if resets > 0 { text += resets == 1 ? ", ein Reset" : ", \(resets) Resets" }
-            let gaps = zip(item.values, item.values.dropFirst())
-                .filter { $1.0.timeIntervalSince($0.0) > HistoryWindow.maxGap }.count
-            if gaps > 0 { text += gaps == 1 ? ", eine Lücke" : ", \(gaps) Lücken" }
             return text
         }
         .joined(separator: "; ")
@@ -450,7 +453,24 @@ private struct HistoryChart: View {
     }
 
     static func resetCount(in values: [(Date, Int)]) -> Int {
-        zip(values, values.dropFirst()).filter { isReset(from: $0, to: $1) }.count
+        let values = bucketed(values)
+        return zip(values, values.dropFirst()).filter { isReset(from: $0, to: $1) }.count
+    }
+
+    /// The last value of every bucket, at its own time.
+    static func bucketed(_ values: [(Date, Int)]) -> [(Date, Int)] {
+        var result: [(Date, Int)] = []
+        var currentBucket: Int?
+        for value in values {
+            let bucket = Int(value.0.timeIntervalSinceReferenceDate / HistoryWindow.bucket)
+            if bucket == currentBucket {
+                result[result.count - 1] = value
+            } else {
+                result.append(value)
+                currentBucket = bucket
+            }
+        }
+        return result
     }
 
     private func draw(in context: GraphicsContext, size: CGSize) {
@@ -497,30 +517,28 @@ private struct HistoryChart: View {
 
         var resetLabels: [CGFloat] = []
         for item in series {
-            let style = StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: item.dash)
-            var line = Path()
-            var segmentLength = 0
-            var previous: (Date, Int)?
-
-            func closeSegment() {
-                // A lone measurement has no line to draw; mark it as a dot instead.
-                if segmentLength == 1, let previous {
-                    let point = CGPoint(x: x(previous.0), y: y(previous.1))
-                    context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)), with: .color(item.color))
+            let values = Self.bucketed(item.values)
+            var measured = Path()
+            var bridged = Path()
+            for (previous, value) in zip(values, values.dropFirst()) {
+                let from = CGPoint(x: x(previous.0), y: y(previous.1))
+                let to = CGPoint(x: x(value.0), y: y(value.1))
+                if value.0.timeIntervalSince(previous.0) > HistoryWindow.maxGap {
+                    // No measurements in between: keep the course readable, but faint, so
+                    // the estimate does not pass for data.
+                    bridged.move(to: from)
+                    bridged.addLine(to: to)
+                    continue
                 }
-                segmentLength = 0
-            }
-
-            for value in item.values {
-                let point = CGPoint(x: x(value.0), y: y(value.1))
-                if let previous, Self.isReset(from: previous, to: value) {
-                    // A reset is a jump, not a recovery: end the line and mark the moment.
+                measured.move(to: from)
+                measured.addLine(to: to)
+                if Self.isReset(from: previous, to: value) {
                     var marker = Path()
-                    marker.move(to: CGPoint(x: point.x, y: plot.minY))
-                    marker.addLine(to: CGPoint(x: point.x, y: plot.maxY))
+                    marker.move(to: CGPoint(x: to.x, y: plot.minY))
+                    marker.addLine(to: CGPoint(x: to.x, y: plot.maxY))
                     context.stroke(marker, with: .color(item.color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
                     // Above the plot, so the label never sits on a line.
-                    let labelX = min(max(point.x, plot.minX + 16), plot.maxX - 16)
+                    let labelX = min(max(to.x, plot.minX + 16), plot.maxX - 16)
                     if resetLabels.allSatisfy({ abs($0 - labelX) > 40 }) {
                         resetLabels.append(labelX)
                         context.draw(
@@ -529,23 +547,15 @@ private struct HistoryChart: View {
                             anchor: .top
                         )
                     }
-                    closeSegment()
-                    line.move(to: point)
-                } else if let previous, value.0.timeIntervalSince(previous.0) <= HistoryWindow.maxGap {
-                    line.addLine(to: point)
-                } else {
-                    closeSegment()
-                    line.move(to: point)
                 }
-                segmentLength += 1
-                previous = value
             }
-            closeSegment()
-            context.stroke(line, with: .color(item.color), style: style)
+            let style = StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            context.stroke(bridged, with: .color(item.color.opacity(Theme.bridgeOpacity)), style: style)
+            context.stroke(measured, with: .color(item.color), style: style)
         }
 
-        // Direct labels right of the plot. Each line ends in a dot at its real last value;
-        // a thin leader joins dot and label whenever the label had to move or the data is old.
+        // Direct labels right of the plot. Each line ends in its marker at its real last value;
+        // a thin leader joins marker and label whenever the label had to move or the data is old.
         let ends = series.compactMap { item -> (HistorySeries, CGPoint, Int)? in
             guard let last = item.values.last else { return nil }
             return (item, CGPoint(x: x(last.0), y: y(last.1)), last.1)
@@ -561,25 +571,30 @@ private struct HistoryChart: View {
         for (index, end) in ends.enumerated() {
             let (item, endPoint, percent) = end
             let labelY = labelYs[index]
-            context.fill(
-                Path(ellipseIn: CGRect(x: endPoint.x - 3, y: endPoint.y - 3, width: 6, height: 6)),
-                with: .color(item.color)
-            )
+            context.fill(Self.markerPath(item.marker, at: endPoint), with: .color(item.color))
             var leader = Path()
             leader.move(to: CGPoint(x: endPoint.x + 4, y: endPoint.y))
             leader.addLine(to: CGPoint(x: plot.maxX + 6, y: labelY))
             if abs(labelY - endPoint.y) > 1 || plot.maxX - endPoint.x > 4 {
                 context.stroke(leader, with: .color(Theme.leader), lineWidth: 1)
             }
-            var swatch = Path()
-            swatch.move(to: CGPoint(x: plot.maxX + 6, y: labelY))
-            swatch.addLine(to: CGPoint(x: plot.maxX + 16, y: labelY))
-            context.stroke(swatch, with: .color(item.color), style: StrokeStyle(lineWidth: 2, lineCap: .butt, dash: item.dash.isEmpty ? [] : [3, 2]))
+            context.fill(Self.markerPath(item.marker, at: CGPoint(x: plot.maxX + 11, y: labelY)), with: .color(item.color))
             context.draw(
                 Text("\(item.name) \(Theme.percent(percent))").font(.subheadline.weight(.medium)).monospacedDigit(),
                 at: CGPoint(x: plot.maxX + 20, y: labelY),
                 anchor: .leading
             )
+        }
+    }
+}
+
+private extension HistoryChart {
+    static func markerPath(_ marker: HistorySeries.Marker, at center: CGPoint) -> Path {
+        let size: CGFloat = 7
+        let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
+        switch marker {
+        case .circle: return Path(ellipseIn: rect)
+        case .square: return Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 1.5)
         }
     }
 }

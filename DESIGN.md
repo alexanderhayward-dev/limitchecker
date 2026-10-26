@@ -18,8 +18,8 @@ colors:
   secondary-text: "primary 72 %"     # sekundärer Text, gemessen ≥ 5,6 : 1
   warning: "systemOrange"            # Balken ≤ 50 %, Warnsymbole – nie Text
   critical: "systemRed"              # Balken ≤ 20 %
-  series-claude: "systemPurple"      # nur im Verlauf, durchgezogen
-  series-codex: "systemBlue"         # nur im Verlauf, gestrichelt
+  series-claude: "systemPurple"      # nur im Verlauf, Endmarke Kreis
+  series-codex: "systemBlue"         # nur im Verlauf, Endmarke Quadrat
 
 typography:   # macOS-Textstile, gemessen
   headline: 13 pt fett       # Fenstertitel
@@ -73,7 +73,7 @@ Regeln:
 - Kein Grün. Rot/Grün ist das häufigste Problempaar bei Farbschwäche, und „alles
   in Ordnung" braucht keine Farbe.
 - Farbe trägt nie allein Bedeutung: Jeder Balken steht neben seiner Zahl, jede
-  Diagrammlinie trägt ihren Namen am Ende und hat ein eigenes Strichmuster.
+  Diagrammlinie trägt ihren Namen am Ende und eine eigene Form als Endmarke.
 - **Text ist nie farbig**, sondern `.primary` oder `secondaryText`. Signalfarben
   färben nur Flächen und Symbole: Orange als Text erreicht auf heller Fläche nur
   etwa 2 : 1. Einzige Ausnahme sind Links („Manuell herunterladen") in der
@@ -154,26 +154,30 @@ liest die Zeile als eine Einheit.
 reduzieren".
 
 **Verlauf** (`HistoryChart`) – ein Diagramm für beide Dienste: gemeinsame Skala
-0–100 %, gemeinsame Zeitachse über 12 Stunden.
-- Claude durchgezogen, Codex gestrichelt, damit identische Verläufe sichtbar
-  bleiben und die Zuordnung nicht nur an der Farbe hängt.
-- Jede Linie endet in einem Punkt an ihrem tatsächlich letzten Wert. Rechts
-  daneben stehen Name und Wert. Mussten die Beschriftungen auseinanderrücken oder
-  sind die Daten älter, verbindet eine feine Führungslinie Punkt und Beschriftung.
-- Lücken über 15 Minuten (Ruhezustand) unterbrechen die Linie; ein einzelner
-  Messwert erscheint als Punkt.
-- Ein Reset ist ein Sprung, keine Erholung. Verbrauch senkt das Restkontingent
-  nur, darum gilt als Reset ein Anstieg zwischen zwei Messungen um mindestens 30
-  Punkte (`resetRise`) oder auf genau 100 % um mindestens 10 Punkte
-  (`resetRiseToFull`). Ein, zwei Punkte sind Rundung. Die Linie endet
-  und beginnt neu, eine gestrichelte Senkrechte markiert den Reset. Nach einer
-  Lücke wird kein Reset-Zeitpunkt behauptet. Das Wort „Reset" steht über der
-  Zeichenfläche, nie auf einer Linie.
+0–100 %, gemeinsame Zeitachse über 12 Stunden. **Es zeigt den groben Verlauf,
+keine Einzelmessungen.** Lesbarkeit geht vor Messgenauigkeit.
+- Je 10 Minuten ein Wert (der letzte darin). Minütliche Treppchen sind Rauschen.
+- Zeiten ohne Messung (der Mac schlief) werden **überbrückt**, nur blasser
+  (35 % Deckkraft). Die Linie bleibt durchgehend lesbar, und wer genau hinsieht,
+  erkennt die geschätzten Strecken. Keine Flächen, keine „keine Daten"-Texte:
+  Das war ausprobiert und hat das Diagramm mit echten, lückenhaften Daten
+  zerstückelt.
+- Beide Linien durchgezogen. Unterschieden werden sie über Farbe *und* die Form
+  der Endmarke: Kreis für Claude, Quadrat für Codex, dieselbe Form neben dem Namen.
+  Strichmuster waren ausprobiert und wirkten mit echten Daten unruhig.
+- Jede Linie endet an ihrem tatsächlich letzten Wert. Rechts daneben stehen Name
+  und Wert; mussten die Beschriftungen auseinanderrücken oder sind die Daten älter,
+  verbindet eine feine Führungslinie Marke und Beschriftung.
+- Reset: Ein deutlicher Anstieg zwischen zwei gemessenen Werten – mindestens 30
+  Punkte (`resetRise`) oder um mindestens 10 Punkte auf genau 100 %
+  (`resetRiseToFull`) – bekommt eine gestrichelte Senkrechte und das Wort „Reset"
+  über der Zeichenfläche. In einer überbrückten Strecke wird kein Reset-Zeitpunkt
+  behauptet.
 - Leerzustand, Zeichnung, Beschriftung und VoiceOver lesen dieselben sichtbaren
   Daten. VoiceOver bekommt eine Zusammenfassung (Wert jetzt, Alter des letzten
-  Werts, wenn er älter als 15 Minuten ist, Wert zu Beginn, Resets, Lücken) und über `accessibilityChartDescriptor`
-  die Messwerte als Audio-Graph, als Einzelpunkte, damit Lücken und Resets hörbar
-  bleiben. Der Descriptor wird bei neuen Daten aktualisiert.
+  Werts, wenn er älter als 25 Minuten ist, Wert zu Beginn, Resets) und über
+  `accessibilityChartDescriptor` die Messwerte als Audio-Graph. Der Descriptor
+  wird bei neuen Daten aktualisiert.
 - Zeitbeschriftungen sitzen exakt am Anfang, in der Mitte und am Ende.
 
 **Zustände**
@@ -225,5 +229,5 @@ Sonst keine Animation. Bei „Bewegung reduzieren" entfällt auch diese.
 > `primary` 5 % Fläche, 8 % Haarlinie, Radius 10. Systemtextstile, nie unter
 > 11 pt; Prozentwert 15 pt halbfett mit gleich breiten Ziffern; sekundärer Text
 > `primary` 72 %. Farbe nur als Signal auf Flächen und Symbolen (Orange ≤ 50 %,
-> Rot ≤ 20 %), nie als Text; Serien im Verlauf Lila durchgezogen und Blau
-> gestrichelt, direkt beschriftet. Alles deutsch, Werte in `enum Theme`.
+> Rot ≤ 20 %), nie als Text; Verlauf grob (10-Minuten-Werte, Lücken blass
+> überbrückt), Serien Lila (Kreis) und Blau (Quadrat), direkt beschriftet. Alles deutsch, Werte in `enum Theme`.

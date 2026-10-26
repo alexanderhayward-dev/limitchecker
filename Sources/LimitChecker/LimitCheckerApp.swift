@@ -1,3 +1,4 @@
+import Accessibility
 import Foundation
 import SwiftUI
 
@@ -44,128 +45,259 @@ private struct MenuBarLabel: View {
     }
 }
 
+/// Layout, type and colour tokens of the detail window. DESIGN.md gives the reasons;
+/// the values live here.
+enum Theme {
+    static let width: CGFloat = 400
+    static let outerPadding: CGFloat = 12
+    static let platterPadding: CGFloat = 12
+    static let platterSpacing: CGFloat = 8
+    static let platterRadius: CGFloat = 10
+    static let rowSpacing: CGFloat = 12
+    static let barHeight: CGFloat = 6
+    static let hitTarget: CGFloat = 24
+
+    static let platterFill = Color.primary.opacity(0.05)
+    static let hairline = Color.primary.opacity(0.08)
+    static let barTrack = Color.primary.opacity(0.10)
+    static let barNeutral = Color.primary.opacity(0.55)
+    static let gridline = Color.secondary.opacity(0.25)
+    static let leader = Color.secondary.opacity(0.5)
+
+    /// Secondary text. The system's secondary label measured 3.9:1 on a light module;
+    /// this tone measured 5.6:1 light and 5.9:1 dark.
+    static let secondaryText = Color.primary.opacity(0.72)
+
+    /// Colour is a signal: only these two mean "look here". They colour fills and symbols,
+    /// never text, which they would not carry legibly on a light background.
+    static let warning = Color.orange
+    static let critical = Color.red
+
+    /// Series colours stay clear of the signal colours.
+    static let claudeSeries = Color.purple
+    static let codexSeries = Color.blue
+
+    /// Narrow no-break space between number and percent sign, as German typesetting has it.
+    static func percent(_ value: Int) -> String { "\(value)\u{202F}%" }
+}
+
+/// A Control-Center-style module on the window's material.
+private struct Platter<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.platterRadius, style: .continuous)
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.platterPadding)
+            .background(Theme.platterFill, in: shape)
+            .overlay(shape.strokeBorder(Theme.hairline))
+    }
+}
+
 private struct LimitMenuView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var updateStore: UpdateStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("LimitChecker")
-                    .font(.headline)
-                Spacer()
-                if store.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .help("Aktualisiere")
-                } else {
-                    Button(action: store.refresh) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Aktualisieren")
-                }
-                UpdateMenu(store: updateStore)
-            }
+        VStack(alignment: .leading, spacing: Theme.platterSpacing) {
+            header
 
+            ServicePlatter(
+                title: "Claude Code",
+                usage: store.claude,
+                issue: store.claudeIssue,
+                isRefreshing: store.isRefreshing,
+                now: store.displayTime
+            )
+            ServicePlatter(
+                title: "Codex",
+                usage: store.codex,
+                issue: store.codexIssue,
+                isRefreshing: store.isRefreshing,
+                now: store.displayTime
+            )
+
+            // After the quotas: the window answers "how much is left" first. The menu bar
+            // dot already announces the update.
             if updateStore.availableRelease != nil {
-                UpdateBanner(store: updateStore)
-                Divider()
+                Platter { UpdateBanner(store: updateStore) }
             }
 
-            serviceSection(title: "Claude Code", usage: store.claude, issue: store.claudeIssue)
-            Divider()
-            serviceSection(title: "Codex", usage: store.codex, issue: store.codexIssue)
+            Platter { UsageHistoryView(points: store.historyPoints, now: store.displayTime) }
 
-            Divider()
-            UsageHistoryView(points: store.historyPoints, now: store.displayTime)
-
-            Divider()
-            HStack {
-                Text(store.lastUpdatedText)
-                    .font(.caption)
-                    .foregroundStyle(store.statusColor)
-                Spacer()
-                Button("Beenden") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .buttonStyle(.borderless)
-            }
+            statusLine
+                .padding(.horizontal, Theme.platterPadding)
+                .padding(.top, 2)
         }
-        .padding(16)
-        .frame(width: 430)
+        .padding(Theme.outerPadding)
+        .frame(width: Theme.width)
         .onAppear {
             store.start()
             updateStore.start()
         }
     }
 
-    @ViewBuilder
-    private func serviceSection(title: String, usage: ServiceUsage?, issue: String?) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-
-            if let usage, usage.ok {
-                ForEach(usage.windows) { window in
-                    LimitRow(window: window)
+    private var header: some View {
+        HStack(spacing: 2) {
+            Text("LimitChecker")
+                .font(.headline)
+            Spacer()
+            if store.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                    .help("Aktualisiere")
+                    .accessibilityLabel("Aktualisiere")
+            } else {
+                Button(action: store.refresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                        .contentShape(Rectangle())
                 }
-                if let issue {
-                    Label(issue, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                .buttonStyle(.borderless)
+                .help("Aktualisieren")
+                .accessibilityLabel("Aktualisieren")
+            }
+            OptionsMenu(updateStore: updateStore)
+        }
+        .padding(.leading, Theme.platterPadding)
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        if store.statusNeedsAttention {
+            Label {
+                Text(store.lastUpdatedText).foregroundStyle(Theme.secondaryText)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
+            }
+            .font(.subheadline)
+        } else {
+            Text(store.lastUpdatedText)
+                .font(.subheadline)
+                .foregroundStyle(Theme.secondaryText)
+        }
+    }
+}
+
+private struct OptionsMenu: View {
+    @ObservedObject var updateStore: UpdateStore
+
+    var body: some View {
+        Menu {
+            UpdateMenuItems(store: updateStore)
+            Divider()
+            Button("LimitChecker beenden") {
+                NSApplication.shared.terminate(nil)
+            }
+        } label: {
+            // The frame belongs inside the label: outside, it only pads the layout and
+            // leaves the clickable area at the symbol's size.
+            Image(systemName: "ellipsis.circle")
+                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Optionen")
+        .accessibilityLabel("Optionen")
+    }
+}
+
+private struct ServicePlatter: View {
+    let title: String
+    let usage: ServiceUsage?
+    let issue: String?
+    let isRefreshing: Bool
+    let now: Date
+
+    var body: some View {
+        Platter {
+            VStack(alignment: .leading, spacing: Theme.rowSpacing) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+
+                if let usage, usage.ok {
+                    ForEach(usage.windows) { window in
+                        LimitRow(window: window, capturedAt: usage.capturedAt, capturedZone: usage.capturedZone, now: now)
+                    }
+                    if let issue {
+                        IssueLine(text: issue)
+                    }
+                } else if isRefreshing {
+                    // Shaped like the real rows, so the window keeps its height when data arrives.
+                    ForEach(LimitWindow.placeholders) { window in
+                        LimitRow(window: window, capturedAt: now, capturedZone: .current, now: now)
+                    }
+                    .redacted(reason: .placeholder)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Wird geladen")
+                } else if let issue {
+                    IssueLine(text: issue)
+                } else {
+                    Text(usage?.error ?? "Noch nicht abgerufen")
+                        .font(.callout)
+                        .foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            } else if store.isRefreshing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Aktualisiere …")
-                        .foregroundStyle(.secondary)
-                }
-            } else if let issue {
-                Label(issue, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(usage?.error ?? "Noch nicht abgerufen")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 }
 
-private struct LimitRow: View {
-    let window: LimitWindow
+private struct IssueLine: View {
+    let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(window.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        Label {
+            Text(text)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Theme.warning)
+        }
+        .font(.callout)
+    }
+}
+
+private struct LimitRow: View {
+    let window: LimitWindow
+    let capturedAt: Date
+    let capturedZone: TimeZone
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(window.displayName)
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryText)
                 Spacer()
-                Text("\(window.percentLeft)% frei")
-                    .font(.caption.weight(.medium))
+                Text(Theme.percent(window.percentLeft))
+                    .font(.title3.weight(.semibold))
                     .monospacedDigit()
+                Text("frei")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryText)
             }
             LimitProgressBar(percentLeft: window.percentLeft, tint: tint)
-            if let resets = window.resets {
-                Text("Reset: \(resets)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if let resets = window.resetText(capturedAt: capturedAt, capturedZone: capturedZone, now: now) {
+                Text("Reset \(resets)")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryText)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private var tint: Color {
         switch window.percentLeft {
-        case 0...20: .red
-        case 21...50: .orange
-        default: .green
+        case ...20: Theme.critical
+        case ...50: Theme.warning
+        default: Theme.barNeutral
         }
     }
 }
@@ -174,195 +306,337 @@ private struct LimitProgressBar: View {
     let percentLeft: Int
     let tint: Color
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.redactionReasons) private var redactionReasons
+
     var body: some View {
         GeometryReader { geometry in
-            let fraction = min(max(Double(percentLeft) / 100, 0), 1)
+            // Redaction hides text only; an unfilled track keeps a placeholder from passing for data.
+            let fraction = redactionReasons.isEmpty ? min(max(Double(percentLeft) / 100, 0), 1) : 0
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.08))
+                    .fill(Theme.barTrack)
                 Capsule()
                     .fill(tint)
-                    .frame(width: max(0, geometry.size.width * fraction))
+                    .frame(width: geometry.size.width * fraction)
             }
         }
-        .frame(height: 16)
-        .accessibilityLabel("\(percentLeft) Prozent frei")
+        .frame(height: Theme.barHeight)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: percentLeft)
+        .accessibilityHidden(true)
     }
+}
+
+private struct HistorySeries {
+    let name: String
+    let color: Color
+    /// Distinguishes the series without colour; empty means a solid line.
+    let dash: [CGFloat]
+    let values: [(Date, Int)]
+}
+
+private enum HistoryWindow {
+    static let span: TimeInterval = 12 * 60 * 60
+    /// Longer gaps (the Mac was asleep) break the line instead of bridging them.
+    static let maxGap: TimeInterval = 15 * 60
+    /// Rises in percentage points that count as a reset: anywhere, or ending on 100 %.
+    static let resetRise = 30
+    static let resetRiseToFull = 10
 }
 
 private struct UsageHistoryView: View {
     let points: [UsageHistoryPoint]
     let now: Date
 
-    private var claudeValues: [(Date, Int)] {
-        points.compactMap { point in
-            point.claudeSessionPercentLeft.map { (point.timestamp, $0) }
-        }
-    }
-
-    private var codexValues: [(Date, Int)] {
-        points.compactMap { point in
-            point.codexFiveHourPercentLeft.map { (point.timestamp, $0) }
-        }
+    /// The values inside the visible window. Empty state, drawing, labels and VoiceOver
+    /// all read this one set, so they cannot disagree about what is shown.
+    private var series: [HistorySeries] {
+        let start = now.addingTimeInterval(-HistoryWindow.span)
+        let visible = points.filter { $0.timestamp >= start && $0.timestamp <= now }
+        return [
+            HistorySeries(
+                name: "Claude",
+                color: Theme.claudeSeries,
+                dash: [],
+                values: visible.compactMap { point in point.claudeSessionPercentLeft.map { (point.timestamp, $0) } }
+            ),
+            HistorySeries(
+                name: "Codex",
+                color: Theme.codexSeries,
+                dash: [5, 3],
+                values: visible.compactMap { point in point.codexFiveHourPercentLeft.map { (point.timestamp, $0) } }
+            ),
+        ]
+        .filter { !$0.values.isEmpty }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Verlauf des Restkontingents")
-                    .font(.subheadline.weight(.semibold))
-                Text("12 Stunden")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Verlauf")
+                    .font(.body.weight(.semibold))
+                Text("5-Stunden-Fenster, letzte 12 Std.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryText)
             }
 
-            if claudeValues.isEmpty && codexValues.isEmpty {
-                Text("Verlauf baut sich mit den nächsten Aktualisierungen auf.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            let current = series
+            if current.isEmpty {
+                Text("Der Verlauf baut sich mit den nächsten Aktualisierungen auf.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryText)
             } else {
-                if !claudeValues.isEmpty {
-                    HistoryChart(
-                        title: "Claude Code · Session",
-                        values: claudeValues,
-                        color: .orange,
-                        now: now
-                    )
-                }
-                if !codexValues.isEmpty {
-                    HistoryChart(
-                        title: "Codex · 5h-Limit",
-                        values: codexValues,
-                        color: .blue,
-                        now: now
-                    )
-                }
+                HistoryChart(series: current, now: now)
             }
         }
     }
 }
 
+/// Both series share one 0–100 scale and one time axis; each is labelled directly at its
+/// end instead of through a legend.
 private struct HistoryChart: View {
-    let title: String
-    let values: [(Date, Int)]
-    let color: Color
+    let series: [HistorySeries]
     let now: Date
 
-    private let chartHeight: CGFloat = 112
-    private var latestPercent: Int? { values.last?.1 }
+    private let topBand: CGFloat = 16
+    private let plotHeight: CGFloat = 72
+    private let bottomBand: CGFloat = 22
+    private let axisWidth: CGFloat = 38
+    private let labelWidth: CGFloat = 88
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Label(title, systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(color)
-                Spacer()
-                if let latestPercent {
-                    Text("\(latestPercent)% frei")
-                        .font(.caption.weight(.medium))
-                        .monospacedDigit()
-                }
-            }
-
-            if values.count >= 2 {
-                HStack(alignment: .top, spacing: 7) {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text("100%")
-                        Spacer()
-                        Text("50%")
-                        Spacer()
-                        Text("0%")
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .frame(height: chartHeight)
-
-                    Canvas { context, size in
-                        drawChart(in: context, size: size)
-                    }
-                    .frame(height: chartHeight)
-                }
-
-                HStack(spacing: 0) {
-                    Text("vor 12 Std.")
-                    Spacer()
-                    Text("vor 6 Std.")
-                    Spacer()
-                    Text("jetzt")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.leading, 39)
-            } else {
-                Text("Noch ein Messwert, dann wird der Verlauf gezeigt.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(height: chartHeight, alignment: .center)
-            }
+        Canvas { context, size in
+            draw(in: context, size: size)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), Verlauf des Restkontingents")
+        .frame(height: topBand + plotHeight + bottomBand)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Verlauf der letzten 12 Stunden")
+        .accessibilityValue(summary)
+        .accessibilityChartDescriptor(HistoryChartDescriptor(series: series, now: now))
     }
 
-    private func drawChart(in context: GraphicsContext, size: CGSize) {
-        let start = now.addingTimeInterval(-12 * 60 * 60)
-        let duration = max(now.timeIntervalSince(start), 1)
-        let width = max(size.width, 1)
-        let height = max(size.height, 1)
-        let point = { (value: (Date, Int)) in
-            CGPoint(
-                x: min(max(width * value.0.timeIntervalSince(start) / duration, 0), width),
-                y: height * (1 - Double(value.1) / 100)
+    private var summary: String {
+        series.compactMap { item -> String? in
+            guard let first = item.values.first, let last = item.values.last else { return nil }
+            var text = "\(item.name): \(Theme.percent(last.1)) frei"
+            if now.timeIntervalSince(last.0) > HistoryWindow.maxGap {
+                text += ", letzter Wert \(ago(last.0))"
+            }
+            if item.values.count > 1 {
+                text += ", \(ago(first.0)) \(Theme.percent(first.1))"
+            }
+            let resets = Self.resetCount(in: item.values)
+            if resets > 0 { text += resets == 1 ? ", ein Reset" : ", \(resets) Resets" }
+            let gaps = zip(item.values, item.values.dropFirst())
+                .filter { $1.0.timeIntervalSince($0.0) > HistoryWindow.maxGap }.count
+            if gaps > 0 { text += gaps == 1 ? ", eine Lücke" : ", \(gaps) Lücken" }
+            return text
+        }
+        .joined(separator: "; ")
+    }
+
+    private func ago(_ date: Date) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        return minutes < 60 ? "vor \(max(minutes, 1)) Min." : "vor \(Int((Double(minutes) / 60).rounded())) Std."
+    }
+
+    /// Usage only ever lowers the remaining quota, so a rise means a reset: a large one even
+    /// when the next measurement no longer reads exactly 100 %, a smaller one when it lands
+    /// on 100 %. A point or two is rounding. After a gap the moment is unknown, so none is claimed.
+    static func isReset(from previous: (Date, Int), to value: (Date, Int)) -> Bool {
+        let rise = value.1 - previous.1
+        let isJump = rise >= HistoryWindow.resetRise || (value.1 == 100 && rise >= HistoryWindow.resetRiseToFull)
+        return isJump && value.0.timeIntervalSince(previous.0) <= HistoryWindow.maxGap
+    }
+
+    static func resetCount(in values: [(Date, Int)]) -> Int {
+        zip(values, values.dropFirst()).filter { isReset(from: $0, to: $1) }.count
+    }
+
+    private func draw(in context: GraphicsContext, size: CGSize) {
+        let plot = CGRect(
+            x: axisWidth,
+            y: topBand,
+            width: max(size.width - axisWidth - labelWidth, 1),
+            height: plotHeight
+        )
+        let start = now.addingTimeInterval(-HistoryWindow.span)
+        func x(_ date: Date) -> CGFloat {
+            plot.minX + plot.width * CGFloat(min(max(date.timeIntervalSince(start) / HistoryWindow.span, 0), 1))
+        }
+        func y(_ percent: Int) -> CGFloat {
+            plot.maxY - plot.height * CGFloat(min(max(percent, 0), 100)) / 100
+        }
+
+        for percent in [0, 50, 100] {
+            var guide = Path()
+            guide.move(to: CGPoint(x: plot.minX, y: y(percent)))
+            guide.addLine(to: CGPoint(x: plot.maxX, y: y(percent)))
+            context.stroke(guide, with: .color(Theme.gridline), lineWidth: 1)
+            context.draw(
+                Text(Theme.percent(percent)).font(.subheadline).monospacedDigit().foregroundStyle(Theme.secondaryText),
+                at: CGPoint(x: plot.minX - 6, y: y(percent)),
+                anchor: .trailing
             )
         }
 
-        for fraction in [0.0, 0.5, 1.0] {
-            var guide = Path()
-            let y = height * fraction
-            guide.move(to: CGPoint(x: 0, y: y))
-            guide.addLine(to: CGPoint(x: width, y: y))
-            context.stroke(guide, with: .color(.secondary.opacity(0.22)), lineWidth: 1)
+        // Time labels at their exact positions; spacers between labels of unequal width
+        // would pull "vor 6 Std." off the middle.
+        let timeLabels: [(String, CGFloat, UnitPoint)] = [
+            ("vor 12 Std.", plot.minX, .topLeading),
+            ("vor 6 Std.", plot.midX, .top),
+            ("jetzt", plot.maxX, .topTrailing),
+        ]
+        for (text, labelX, anchor) in timeLabels {
+            context.draw(
+                Text(text).font(.subheadline).foregroundStyle(Theme.secondaryText),
+                at: CGPoint(x: labelX, y: plot.maxY + 8),
+                anchor: anchor
+            )
         }
 
-        var path = Path()
-        for (index, value) in values.enumerated() {
-            let current = point(value)
-            if index == 0 {
-                path.move(to: current)
-            } else {
-                let previous = point(values[index - 1])
-                path.addLine(to: CGPoint(x: current.x, y: previous.y))
-                path.addLine(to: current)
+        var resetLabels: [CGFloat] = []
+        for item in series {
+            let style = StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: item.dash)
+            var line = Path()
+            var segmentLength = 0
+            var previous: (Date, Int)?
+
+            func closeSegment() {
+                // A lone measurement has no line to draw; mark it as a dot instead.
+                if segmentLength == 1, let previous {
+                    let point = CGPoint(x: x(previous.0), y: y(previous.1))
+                    context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)), with: .color(item.color))
+                }
+                segmentLength = 0
+            }
+
+            for value in item.values {
+                let point = CGPoint(x: x(value.0), y: y(value.1))
+                if let previous, Self.isReset(from: previous, to: value) {
+                    // A reset is a jump, not a recovery: end the line and mark the moment.
+                    var marker = Path()
+                    marker.move(to: CGPoint(x: point.x, y: plot.minY))
+                    marker.addLine(to: CGPoint(x: point.x, y: plot.maxY))
+                    context.stroke(marker, with: .color(item.color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                    // Above the plot, so the label never sits on a line.
+                    let labelX = min(max(point.x, plot.minX + 16), plot.maxX - 16)
+                    if resetLabels.allSatisfy({ abs($0 - labelX) > 40 }) {
+                        resetLabels.append(labelX)
+                        context.draw(
+                            Text("Reset").font(.subheadline).foregroundStyle(Theme.secondaryText),
+                            at: CGPoint(x: labelX, y: 0),
+                            anchor: .top
+                        )
+                    }
+                    closeSegment()
+                    line.move(to: point)
+                } else if let previous, value.0.timeIntervalSince(previous.0) <= HistoryWindow.maxGap {
+                    line.addLine(to: point)
+                } else {
+                    closeSegment()
+                    line.move(to: point)
+                }
+                segmentLength += 1
+                previous = value
+            }
+            closeSegment()
+            context.stroke(line, with: .color(item.color), style: style)
+        }
+
+        // Direct labels right of the plot. Each line ends in a dot at its real last value;
+        // a thin leader joins dot and label whenever the label had to move or the data is old.
+        let ends = series.compactMap { item -> (HistorySeries, CGPoint, Int)? in
+            guard let last = item.values.last else { return nil }
+            return (item, CGPoint(x: x(last.0), y: y(last.1)), last.1)
+        }
+        .sorted { $0.1.y < $1.1.y }
+        var labelYs = ends.map(\.1.y)
+        for index in labelYs.indices.dropFirst() {
+            labelYs[index] = max(labelYs[index], labelYs[index - 1] + 15)
+        }
+        if let overflow = labelYs.last.map({ $0 - (plot.maxY + 7) }), overflow > 0 {
+            labelYs = labelYs.map { $0 - overflow }
+        }
+        for (index, end) in ends.enumerated() {
+            let (item, endPoint, percent) = end
+            let labelY = labelYs[index]
+            context.fill(
+                Path(ellipseIn: CGRect(x: endPoint.x - 3, y: endPoint.y - 3, width: 6, height: 6)),
+                with: .color(item.color)
+            )
+            var leader = Path()
+            leader.move(to: CGPoint(x: endPoint.x + 4, y: endPoint.y))
+            leader.addLine(to: CGPoint(x: plot.maxX + 6, y: labelY))
+            if abs(labelY - endPoint.y) > 1 || plot.maxX - endPoint.x > 4 {
+                context.stroke(leader, with: .color(Theme.leader), lineWidth: 1)
+            }
+            var swatch = Path()
+            swatch.move(to: CGPoint(x: plot.maxX + 6, y: labelY))
+            swatch.addLine(to: CGPoint(x: plot.maxX + 16, y: labelY))
+            context.stroke(swatch, with: .color(item.color), style: StrokeStyle(lineWidth: 2, lineCap: .butt, dash: item.dash.isEmpty ? [] : [3, 2]))
+            context.draw(
+                Text("\(item.name) \(Theme.percent(percent))").font(.subheadline.weight(.medium)).monospacedDigit(),
+                at: CGPoint(x: plot.maxX + 20, y: labelY),
+                anchor: .leading
+            )
+        }
+    }
+}
+
+/// Gives VoiceOver the full series as an audio graph instead of two end values.
+private struct HistoryChartDescriptor: AXChartDescriptorRepresentable {
+    let series: [HistorySeries]
+    let now: Date
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let xAxis = AXNumericDataAxisDescriptor(
+            title: "Zeit",
+            range: -12...0,
+            gridlinePositions: [-12, -6, 0]
+        ) { value in
+            let minutes = Int((-value * 60).rounded())
+            switch minutes {
+            case ..<1: return "jetzt"
+            case ..<60: return "vor \(minutes) Min."
+            default: return "vor \(Int((Double(minutes) / 60).rounded())) Std."
             }
         }
-        context.stroke(path, with: .color(color), lineWidth: 2)
-
-        for (index, value) in values.enumerated() where index > 0 {
-            let previous = values[index - 1]
-            guard value.1 == 100, previous.1 < 100 else { continue }
-            let resetPoint = point(value)
-            var marker = Path()
-            marker.move(to: CGPoint(x: resetPoint.x, y: 0))
-            marker.addLine(to: CGPoint(x: resetPoint.x, y: height))
-            context.stroke(
-                marker,
-                with: .color(color.opacity(0.7)),
-                style: StrokeStyle(lineWidth: 1, dash: [3, 3])
-            )
-            context.fill(
-                Path(ellipseIn: CGRect(x: resetPoint.x - 3, y: resetPoint.y - 3, width: 6, height: 6)),
-                with: .color(color)
-            )
-            context.draw(
-                Text("Reset")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(color),
-                at: CGPoint(x: min(resetPoint.x + 4, width - 36), y: 3),
-                anchor: .topLeading
+        let yAxis = AXNumericDataAxisDescriptor(
+            title: "Restkontingent",
+            range: 0...100,
+            gridlinePositions: [0, 50, 100]
+        ) { value in
+            Theme.percent(Int(value.rounded()))
+        }
+        let dataSeries = series.map { item in
+            // Discrete points: gaps and resets stay audible instead of being bridged.
+            AXDataSeriesDescriptor(
+                name: item.name,
+                isContinuous: false,
+                dataPoints: item.values.map { value in
+                    AXDataPoint(x: value.0.timeIntervalSince(now) / 3600, y: Double(value.1))
+                }
             )
         }
+        return AXChartDescriptor(
+            title: "Verlauf der 5-Stunden-Fenster",
+            summary: nil,
+            xAxis: xAxis,
+            yAxis: yAxis,
+            additionalAxes: [],
+            series: dataSeries
+        )
+    }
+
+    /// Without this, VoiceOver keeps the descriptor from the first render while the data moves on.
+    func updateChartDescriptor(_ descriptor: AXChartDescriptor) {
+        let current = makeChartDescriptor()
+        descriptor.title = current.title
+        descriptor.summary = current.summary
+        descriptor.xAxis = current.xAxis
+        descriptor.yAxis = current.yAxis
+        descriptor.series = current.series
     }
 }
 
@@ -415,10 +689,7 @@ final class UsageStore: ObservableObject {
         return "Aktuell · \(time)"
     }
 
-    var statusColor: Color {
-        if lastRefreshFailed || isStale { return .orange }
-        return .secondary
-    }
+    var statusNeedsAttention: Bool { lastRefreshFailed || isStale }
 
     var claudeIssue: String? { claudeError }
     var codexIssue: String? { codexError }
@@ -559,9 +830,18 @@ struct ServiceUsage: Decodable {
     let ok: Bool
     let windows: [LimitWindow]
     let error: String?
+    /// When the probe delivered this result. Reset times like "3:40pm" only make sense
+    /// relative to it; the store keeps showing old results after a failed refresh.
+    var capturedAt = Date.now
+    /// The zone the CLI's wall-clock times were meant in, unless the text names one.
+    var capturedZone = TimeZone.current
+
+    private enum CodingKeys: String, CodingKey {
+        case service, ok, windows, error
+    }
 
     static func error(service: String, message: String) -> ServiceUsage {
-        ServiceUsage(service: service, ok: false, windows: [], error: message)
+        ServiceUsage(service: service, ok: false, windows: [], error: message, capturedAt: .now)
     }
 }
 
@@ -578,9 +858,47 @@ struct LimitWindow: Decodable, Identifiable {
         case rawResets = "resets"
     }
 
+    init(name: String, percentLeft: Int, resets: String?) {
+        self.name = name
+        percentUsed = 100 - percentLeft
+        percentLeftValue = percentLeft
+        rawResets = resets
+    }
+
     var id: String { name }
     var percentLeft: Int { percentLeftValue ?? max(0, 100 - (percentUsed ?? 0)) }
-    var resets: String? { rawResets.map(ResetTimeFormatter.display) }
+
+    func resetText(capturedAt: Date, capturedZone: TimeZone, now: Date) -> String? {
+        rawResets.map { ResetTimeFormatter.display($0, capturedAt: capturedAt, capturedZone: capturedZone, now: now) }
+    }
+
+    private static let knownNames: [(prefix: String, german: String)] = [
+        ("current session", "5-Stunden-Fenster"),
+        ("5h limit", "5-Stunden-Fenster"),
+        ("current week", "Woche"),
+        ("weekly limit", "Woche"),
+    ]
+
+    /// The CLIs name the same two windows differently, and in English. Only the known base
+    /// names are translated, anything after them is kept; unknown names pass unchanged.
+    var displayName: String {
+        let lower = name.lowercased()
+        guard let known = Self.knownNames.first(where: { entry in
+            // Whole words only: "Current weekly limit" must not become "Wochely limit".
+            guard lower.hasPrefix(entry.prefix) else { return false }
+            return lower.dropFirst(entry.prefix.count).first.map { !$0.isLetter && !$0.isNumber } ?? true
+        }) else {
+            return name
+        }
+        let rest = String(name.dropFirst(known.prefix.count))
+            .replacingOccurrences(of: "all models", with: "alle Modelle")
+        return known.german + rest
+    }
+
+    static let placeholders = [
+        LimitWindow(name: "5-Stunden-Fenster", percentLeft: 60, resets: "15:00"),
+        LimitWindow(name: "Woche", percentLeft: 60, resets: "15:00"),
+    ]
 }
 
 struct UsageHistoryPoint: Codable, Identifiable {
@@ -627,52 +945,108 @@ private enum UsageHistory {
     }
 }
 
-private enum ResetTimeFormatter {
-    private static let months = [
-        "Jan": "Jan.", "Feb": "Feb.", "Mar": "März", "Apr": "Apr.",
-        "May": "Mai", "Jun": "Juni", "Jul": "Juli", "Aug": "Aug.",
-        "Sep": "Sept.", "Oct": "Okt.", "Nov": "Nov.", "Dec": "Dez.",
+enum ResetTimeFormatter {
+    private static let monthNames = [
+        "Jan.", "Feb.", "März", "Apr.", "Mai", "Juni",
+        "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez.",
+    ]
+    private static let englishMonths = [
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+        "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
     ]
 
-    static func display(_ raw: String) -> String {
-        let cleaned = raw.replacingOccurrences(of: "(Europe/Berlin)", with: "")
+    /// "heute 15:40", "morgen 02:00", "29. Okt., 02:00". The reset is fixed as an instant
+    /// from the measurement time and the zone the CLI meant; only the wording follows the
+    /// clock and zone of the reader. An old value never turns a past reset into tomorrow's,
+    /// and a trip to another zone shows the reset in local time.
+    static func display(
+        _ raw: String,
+        capturedAt: Date,
+        capturedZone: TimeZone,
+        now: Date,
+        displayZone: TimeZone = .current
+    ) -> String {
+        let cleaned = raw.replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let time = germanTime(in: cleaned) else { return cleaned }
+        let sourceZone = namedZone(in: raw) ?? capturedZone
+        guard let date = resetDate(cleaned, capturedAt: capturedAt, zone: sourceZone) else { return cleaned }
 
-        let words = cleaned
-            .replacingOccurrences(of: "at", with: "")
-            .replacingOccurrences(of: "on", with: "")
-            .split(whereSeparator: { $0 == " " || $0 == "," })
-            .map(String.init)
-        for (index, word) in words.enumerated() {
-            guard let month = months[word] else { continue }
-            if index + 1 < words.count, let day = Int(words[index + 1]) {
-                return "\(day). \(month), \(time)"
-            }
-            if index > 0, let day = Int(words[index - 1]) {
-                return "\(day). \(month), \(time)"
-            }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = displayZone
+        let parts = calendar.dateComponents([.month, .day, .hour, .minute], from: date)
+        let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        let offset = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+        switch offset {
+        case 0: return "heute \(time)"
+        case 1: return "morgen \(time)"
+        case -1: return "gestern \(time)"
+        default: return "\(parts.day ?? 0). \(monthNames[(parts.month ?? 1) - 1]), \(time)"
         }
-
-        let currentHour = Calendar.current.component(.hour, from: .now)
-        let resetHour = Int(time.prefix(2)) ?? currentHour
-        return resetHour < currentHour ? "Morgen, \(time)" : "Heute, \(time)"
     }
 
-    private static func germanTime(in text: String) -> String? {
-        let pattern = #"(?i)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?"#
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let hourRange = Range(match.range(at: 1), in: text),
-              let hourValue = Int(text[hourRange]) else { return nil }
-        let minute = Range(match.range(at: 2), in: text).flatMap { Int(text[$0]) } ?? 0
-        let meridiem = Range(match.range(at: 3), in: text).map { String(text[$0]).lowercased() }
-        let hour: Int
-        switch meridiem {
-        case "am" where hourValue == 12: hour = 0
-        case "pm" where hourValue < 12: hour = hourValue + 12
-        default: hour = hourValue
+    /// "(Europe/Berlin)" as Claude Code prints it, or any other zone name or abbreviation.
+    static func namedZone(in raw: String) -> TimeZone? {
+        guard let range = raw.range(of: #"\([^()]+\)"#, options: .regularExpression) else { return nil }
+        let name = raw[range].dropFirst().dropLast().trimmingCharacters(in: .whitespaces)
+        return TimeZone(identifier: name) ?? TimeZone(abbreviation: name)
+    }
+
+    static func resetDate(_ text: String, capturedAt: Date, zone: TimeZone) -> Date? {
+        guard let time = clockTime(in: text) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+
+        let words = text.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init)
+        if let index = words.firstIndex(where: { englishMonths[$0] != nil }) {
+            let day = (index + 1 < words.count ? Int(words[index + 1]) : nil)
+                ?? (index > 0 ? Int(words[index - 1]) : nil)
+            guard let day, let month = englishMonths[words[index]] else { return nil }
+            // The text has no year: take the one that puts the date nearest the measurement,
+            // which covers "Jan 2" in late December and "Dec 31" on New Year's Day alike.
+            let year = calendar.component(.year, from: capturedAt)
+            return (year - 1...year + 1)
+                .compactMap { candidate in
+                    calendar.date(from: DateComponents(year: candidate, month: month, day: day, hour: time.hour, minute: time.minute))
+                }
+                .min { abs($0.timeIntervalSince(capturedAt)) < abs($1.timeIntervalSince(capturedAt)) }
         }
-        return String(format: "%02d:%02d", hour, minute)
+
+        // A bare time is its next occurrence after the measurement. On the day the clocks go
+        // back, 02:30 happens twice: asking for both and taking the earlier one finds the
+        // first when it is still ahead and the second once the first has passed.
+        let after = capturedAt.addingTimeInterval(-60)
+        let wanted = DateComponents(hour: time.hour, minute: time.minute)
+        return [Calendar.RepeatedTimePolicy.first, .last]
+            .compactMap { policy in
+                calendar.nextDate(after: after, matching: wanted, matchingPolicy: .nextTime, repeatedTimePolicy: policy)
+            }
+            .min()
+    }
+
+    /// A time of day: "3:40pm", "2am" or "15:40". A bare number is not one: in
+    /// "Oct 22 at 2am" the 22 is the day, and reading it as the hour showed 22:00.
+    static func clockTime(in text: String) -> (hour: Int, minute: Int)? {
+        let pattern = #"(?i)\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(\d{1,2}):(\d{2})\b"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        else { return nil }
+        func group(_ index: Int) -> String? {
+            Range(match.range(at: index), in: text).map { String(text[$0]) }
+        }
+
+        if let meridiem = group(3)?.lowercased(), let rawHour = group(1).flatMap(Int.init), (1...12).contains(rawHour) {
+            let minute = group(2).flatMap(Int.init) ?? 0
+            guard minute < 60 else { return nil }
+            let hour = rawHour % 12 + (meridiem == "pm" ? 12 : 0)
+            return (hour, minute)
+        }
+        if let hour = group(4).flatMap(Int.init), let minute = group(5).flatMap(Int.init), hour < 24, minute < 60 {
+            return (hour, minute)
+        }
+        return nil
     }
 }

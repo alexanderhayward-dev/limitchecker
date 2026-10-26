@@ -314,16 +314,18 @@ struct UpdateBanner: View {
 
     var body: some View {
         if let release = store.availableRelease {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
                     Image(systemName: "arrow.down.circle.fill")
+                        .font(.title3)
                         .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 1) {
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Version \(release.version.description) verfügbar")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.body.weight(.semibold))
                         Text("Installiert: \(store.currentVersionText)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.callout)
+                            .foregroundStyle(Theme.secondaryText)
                     }
                     Spacer()
                     if store.installPhase.isBusy {
@@ -333,20 +335,26 @@ struct UpdateBanner: View {
                         Button(store.canInstall ? "Installieren" : "Herunterladen") {
                             store.installOrOpenPage()
                         }
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
                 }
                 if let label = store.installPhase.label {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        if store.installPhase.isFailure {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Theme.warning)
+                                .accessibilityHidden(true)
+                        }
                         Text(label)
-                            .font(.caption)
-                            .foregroundStyle(store.installPhase.isFailure ? Color.orange : Color.secondary)
+                            .font(.callout)
+                            .foregroundStyle(store.installPhase.isFailure ? Color.primary : Theme.secondaryText)
                         if store.installPhase.isFailure {
                             Button("Manuell herunterladen") {
                                 store.openReleasePage()
                             }
                             .buttonStyle(.link)
-                            .font(.caption)
+                            .font(.callout)
                         }
                     }
                 }
@@ -355,31 +363,24 @@ struct UpdateBanner: View {
     }
 }
 
-struct UpdateMenu: View {
+/// The update entries of the window's options menu.
+struct UpdateMenuItems: View {
     @ObservedObject var store: UpdateStore
 
     var body: some View {
-        Menu {
-            Button("Jetzt nach Updates suchen") {
-                store.checkNow()
-            }
-            .disabled(store.isChecking)
-            Toggle("Automatisch nach Updates suchen", isOn: $store.automaticChecksEnabled)
-            Toggle("Updates automatisch installieren", isOn: $store.automaticInstallEnabled)
-                .disabled(!store.automaticChecksEnabled)
-            if let lastCheckText = store.lastCheckText {
-                Divider()
-                Text(lastCheckText)
-            }
-            if let error = store.lastCheckError {
-                Text("Update-Suche fehlgeschlagen: \(error)")
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
+        Button("Jetzt nach Updates suchen") {
+            store.checkNow()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Updates")
+        .disabled(store.isChecking)
+        Toggle("Automatisch nach Updates suchen", isOn: $store.automaticChecksEnabled)
+        Toggle("Updates automatisch installieren", isOn: $store.automaticInstallEnabled)
+            .disabled(!store.automaticChecksEnabled)
+        if let lastCheckText = store.lastCheckText {
+            Divider()
+            Text(lastCheckText)
+        }
+        if let error = store.lastCheckError {
+            Text("Update-Suche fehlgeschlagen: \(error)")
+        }
     }
 }

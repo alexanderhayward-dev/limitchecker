@@ -60,7 +60,8 @@ enum Theme {
     static let platterFill = Color.primary.opacity(0.05)
     static let hairline = Color.primary.opacity(0.08)
     static let barTrack = Color.primary.opacity(0.10)
-    static let barNeutral = Color.primary.opacity(0.55)
+    /// The grey disc Apple's menus use for an item that is not active.
+    static let inactiveDisc = Color.primary.opacity(0.12)
     static let gridline = Color.secondary.opacity(0.25)
     static let leader = Color.secondary.opacity(0.5)
     /// Line opacity across time without measurements, usually a sleeping Mac.
@@ -70,17 +71,24 @@ enum Theme {
     /// this tone measured 5.6:1 light and 5.9:1 dark.
     static let secondaryText = Color.primary.opacity(0.72)
 
-    /// Colour is a signal: only these two mean "look here". They colour fills and symbols,
-    /// never text, which they would not carry legibly on a light background.
+    /// Colour means one of two things. Each service has its own, the way Apple's menus fill
+    /// the active item with the accent colour: its disc, its bars and its chart line. It stays
+    /// clear of the signal colours.
+    static let claude = ServiceStyle(color: .purple, symbol: "sparkle")
+    static let codex = ServiceStyle(color: .blue, symbol: "chevron.left.forwardslash.chevron.right")
+
+    /// The signals: they take over a bar that runs low and mark problems. They colour fills
+    /// and symbols, never text, which they would not carry legibly on a light background.
     static let warning = Color.orange
     static let critical = Color.red
 
-    /// Series colours stay clear of the signal colours.
-    static let claudeSeries = Color.purple
-    static let codexSeries = Color.blue
-
     /// Narrow no-break space between number and percent sign, as German typesetting has it.
     static func percent(_ value: Int) -> String { "\(value)\u{202F}%" }
+}
+
+struct ServiceStyle {
+    let color: Color
+    let symbol: String
 }
 
 /// A Control-Center-style module on the window's material.
@@ -107,6 +115,7 @@ private struct LimitMenuView: View {
 
             ServicePlatter(
                 title: "Claude Code",
+                style: Theme.claude,
                 usage: store.claude,
                 issue: store.claudeIssue,
                 isRefreshing: store.isRefreshing,
@@ -114,6 +123,7 @@ private struct LimitMenuView: View {
             )
             ServicePlatter(
                 title: "Codex",
+                style: Theme.codex,
                 usage: store.codex,
                 issue: store.codexIssue,
                 isRefreshing: store.isRefreshing,
@@ -217,6 +227,7 @@ private struct OptionsMenu: View {
 
 private struct ServicePlatter: View {
     let title: String
+    let style: ServiceStyle
     let usage: ServiceUsage?
     let issue: String?
     let isRefreshing: Bool
@@ -225,12 +236,21 @@ private struct ServicePlatter: View {
     var body: some View {
         Platter {
             VStack(alignment: .leading, spacing: Theme.rowSpacing) {
-                Text(title)
-                    .font(.body.weight(.semibold))
+                HStack(spacing: 8) {
+                    ServiceDisc(style: style, isActive: usage?.ok == true)
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                }
 
                 if let usage, usage.ok {
                     ForEach(usage.windows) { window in
-                        LimitRow(window: window, capturedAt: usage.capturedAt, capturedZone: usage.capturedZone, now: now)
+                        LimitRow(
+                            window: window,
+                            color: style.color,
+                            capturedAt: usage.capturedAt,
+                            capturedZone: usage.capturedZone,
+                            now: now
+                        )
                     }
                     if let issue {
                         IssueLine(text: issue)
@@ -238,7 +258,7 @@ private struct ServicePlatter: View {
                 } else if isRefreshing {
                     // Shaped like the real rows, so the window keeps its height when data arrives.
                     ForEach(LimitWindow.placeholders) { window in
-                        LimitRow(window: window, capturedAt: now, capturedZone: .current, now: now)
+                        LimitRow(window: window, color: style.color, capturedAt: now, capturedZone: .current, now: now)
                     }
                     .redacted(reason: .placeholder)
                     .accessibilityElement(children: .ignore)
@@ -253,6 +273,22 @@ private struct ServicePlatter: View {
                 }
             }
         }
+    }
+}
+
+/// The service's symbol on a filled disc, as Apple's menus mark the active item. Without
+/// current data the disc turns grey, as Apple shows an inactive one.
+private struct ServiceDisc: View {
+    let style: ServiceStyle
+    let isActive: Bool
+
+    var body: some View {
+        Image(systemName: style.symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isActive ? Color.white : Theme.secondaryText)
+            .frame(width: 24, height: 24)
+            .background(isActive ? style.color : Theme.inactiveDisc, in: Circle())
+            .accessibilityHidden(true)
     }
 }
 
@@ -274,6 +310,7 @@ private struct IssueLine: View {
 
 private struct LimitRow: View {
     let window: LimitWindow
+    let color: Color
     let capturedAt: Date
     let capturedZone: TimeZone
     let now: Date
@@ -306,7 +343,7 @@ private struct LimitRow: View {
         switch window.percentLeft {
         case ...20: Theme.critical
         case ...50: Theme.warning
-        default: Theme.barNeutral
+        default: color
         }
     }
 }
@@ -385,7 +422,7 @@ private struct UsageHistoryView: View {
         return [
             HistorySeries(
                 name: "Claude",
-                color: Theme.claudeSeries,
+                color: Theme.claude.color,
                 marker: .circle,
                 values: Self.fillingWindowStarts(
                     visible.compactMap { point in
@@ -398,7 +435,7 @@ private struct UsageHistoryView: View {
             ),
             HistorySeries(
                 name: "Codex",
-                color: Theme.codexSeries,
+                color: Theme.codex.color,
                 marker: .square,
                 values: Self.fillingWindowStarts(
                     visible.compactMap { point in

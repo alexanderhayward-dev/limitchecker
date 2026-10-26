@@ -4,7 +4,7 @@ name: LimitChecker
 description: |
   Detailfenster einer macOS-Menüleisten-App. Native Systemschrift und
   Systemfarben, Module im Stil des Kontrollzentrums auf dem Fenstermaterial,
-  Farbe nur als Signal. Hell und dunkel ohne eigene Varianten, weil alles aus
+  jeder Dienst mit eigener Farbe, Orange und Rot als Signal. Hell und dunkel ohne eigene Varianten, weil alles aus
   Systemfarben und Deckkraftstufen von `.primary` gebaut ist.
 
 tokens: Sources/LimitChecker/LimitCheckerApp.swift → enum Theme
@@ -13,13 +13,13 @@ colors:
   platter-fill: "primary 5 %"        # Modulfläche
   hairline: "primary 8 %"            # Modulrand
   bar-track: "primary 10 %"          # leere Balkenspur
-  bar-neutral: "primary 55 %"        # Balken im Normalfall
+  inactive-disc: "primary 12 %"      # Dienstkreis ohne aktuelle Daten
   gridline: "secondary 25 %"         # Diagrammraster
   secondary-text: "primary 72 %"     # sekundärer Text, gemessen ≥ 5,6 : 1
   warning: "systemOrange"            # Balken ≤ 50 %, Warnsymbole – nie Text
   critical: "systemRed"              # Balken ≤ 20 %
-  series-claude: "systemPurple"      # nur im Verlauf, Endmarke Kreis
-  series-codex: "systemBlue"         # nur im Verlauf, Endmarke Quadrat
+  claude: "systemPurple"             # Kreis „sparkle", Balken, Verlauf (Endmarke Kreis)
+  codex: "systemBlue"                # Kreis „</>", Balken, Verlauf (Endmarke Quadrat)
 
 typography:   # macOS-Textstile, gemessen
   headline: 13 pt fett       # Fenstertitel
@@ -50,8 +50,11 @@ bleibt, wie er ist.
   zurück.
 - **Nativ statt eigen.** Systemschrift, Systemfarben und Systemsteuerelemente.
   Das Fenster soll neben Kontrollzentrum und WLAN-Menü nicht auffallen.
-- **Farbe ist Signal, keine Dekoration.** Im Normalfall ist das Fenster
-  grau-weiß. Farbe erscheint erst, wenn etwas Aufmerksamkeit braucht.
+- **Farbe hat eine Bedeutung: welcher Dienst, oder Achtung.** Wie Apples WLAN-
+  und Tonmenü das aktive Element in Akzentfarbe füllen (Kreis mit weißem Symbol,
+  gefüllter Regler), trägt hier jeder Dienst seine Farbe. Orange und Rot
+  übernehmen, sobald etwas Aufmerksamkeit braucht. Eine reine Graustufen-Fassung
+  (1.0.9) wirkte leblos und hat die Dienste nicht unterscheidbar gemacht.
 - **Tiefe durch Flächen, nicht durch Schatten.** Module heben sich durch eine
   leichte Fläche und eine Haarlinie vom Fenstermaterial ab.
 
@@ -62,13 +65,14 @@ bleibt, wie er ist.
 | Modulfläche | `platterFill` | Hintergrund jedes Moduls |
 | Haarlinie | `hairline` | Modulrand |
 | Sekundärer Text | `secondaryText` | Bezeichnungen, „frei", Reset-Zeit, Achsen, Status |
-| Balken neutral | `barNeutral` | Balken bei mehr als 50 % frei |
+| Dienstfarbe | `claude.color` (Lila) / `codex.color` (Blau) | Kreis vor dem Dienstnamen, Balken bei mehr als 50 % frei, Linie im Verlauf |
+| Inaktiv | `inactiveDisc` | Kreis eines Dienstes ohne aktuelle Daten (grau, Symbol in `secondaryText`) |
 | Warnung | `warning` (Orange) | Balken bei 21–50 % frei, Warnsymbol bei Hinweisen und im Status |
 | Kritisch | `critical` (Rot) | Balken bei 20 % frei und weniger |
-| Serie Claude / Codex | `claudeSeries` / `codexSeries` | **nur** die Linien im Verlauf |
+| Akzent | `Color.accentColor` | Kreis des Update-Hinweises |
 
 Regeln:
-- Orange bedeutet überall dasselbe: *Achtung*. Darum sind die Serienfarben Lila
+- Orange bedeutet überall dasselbe: *Achtung*. Darum sind die Dienstfarben Lila
   und Blau und nie Orange, Rot oder Grün.
 - Kein Grün. Rot/Grün ist das häufigste Problempaar bei Farbschwäche, und „alles
   in Ordnung" braucht keine Farbe.
@@ -137,6 +141,11 @@ Größe den Knopf, damit nichts verrutscht.
 bewusst im Menü und nicht im Fenster: selten gebraucht, nicht versehentlich
 klickbar.
 
+**Dienstkreis** (`ServiceDisc`) – 24 pt, gefüllt in der Dienstfarbe mit weißem
+SF-Symbol (Claude „sparkle", Codex „chevron.left.forwardslash.chevron.right"),
+links vom Dienstnamen. Ohne aktuelle Daten grau wie bei Apple das Inaktive. Der
+Update-Hinweis trägt denselben Kreis in Akzentfarbe.
+
 **Modul** (`Platter`) – Fläche `platterFill`, Haarlinie, Radius 10 pt
 (continuous), Innenabstand 12 pt. Reihenfolge: Claude Code, Codex, bei Bedarf
 der Update-Hinweis, dann der Verlauf. Keine Trennlinien zwischen Modulen.
@@ -149,8 +158,8 @@ noch frei ist; das Update meldet ohnehin der Punkt in der Menüleiste.
 rechts, darunter der Balken (6 pt, Kapsel), darunter die Reset-Zeit. VoiceOver
 liest die Zeile als eine Einheit.
 
-**Balken** – Spur `barTrack`, Füllung nach Schwelle: neutral über 50 %, Orange ab
-50 %, Rot ab 20 %. Wertänderungen gleiten in 0,35 s, außer bei „Bewegung
+**Balken** – Spur `barTrack`, Füllung nach Schwelle: Dienstfarbe über 50 %,
+Orange ab 50 %, Rot ab 20 %. Wertänderungen gleiten in 0,35 s, außer bei „Bewegung
 reduzieren".
 
 **Verlauf** (`HistoryChart`) – ein Diagramm für beide Dienste: gemeinsame Skala
@@ -223,7 +232,8 @@ Sonst keine Animation. Bei „Bewegung reduzieren" entfällt auch diese.
 
 **Don't**
 - Keine `.caption`- oder `.caption2`-Schrift für Inhalte (10 pt).
-- Keine Serienfarbe in Orange, Rot oder Grün.
+- Keine Dienstfarbe in Orange, Rot oder Grün.
+- Keine Graustufen-Balken: Ein Balken trägt die Farbe seines Dienstes oder ein Signal.
 - Keine Signalfarbe als Textfarbe.
 - Keine Trennlinien zwischen Modulen, keine Schlagschatten.
 - Keine bekannten Limitnamen auf Englisch; unbekannte nicht raten, sondern
@@ -235,6 +245,8 @@ Sonst keine Animation. Bei „Bewegung reduzieren" entfällt auch diese.
 > Natives macOS-Menüleistenfenster, 400 pt breit. Module wie im Kontrollzentrum:
 > `primary` 5 % Fläche, 8 % Haarlinie, Radius 10. Systemtextstile, nie unter
 > 11 pt; Prozentwert 15 pt halbfett mit gleich breiten Ziffern; sekundärer Text
-> `primary` 72 %. Farbe nur als Signal auf Flächen und Symbolen (Orange ≤ 50 %,
-> Rot ≤ 20 %), nie als Text; Verlauf grob (10-Minuten-Werte, Lücken blass
-> überbrückt), Serien Lila (Kreis) und Blau (Quadrat), direkt beschriftet. Alles deutsch, Werte in `enum Theme`.
+> `primary` 72 %. Jeder Dienst hat seine Farbe – Claude Lila, Codex Blau – im
+> 24-pt-Kreis mit weißem Symbol, in den Balken und im Verlauf; Orange ≤ 50 %, Rot
+> ≤ 20 % übernehmen die Balken; nie farbiger Text. Verlauf grob (10-Minuten-Werte,
+> Lücken blass überbrückt, Resets am echten Zeitpunkt), Endmarken Kreis/Quadrat,
+> direkt beschriftet. Alles deutsch, Werte in `enum Theme`.

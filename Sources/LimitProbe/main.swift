@@ -339,6 +339,95 @@ private final class ProbeResults: @unchecked Sendable {
     }
 }
 
+/// The `script` wrappers this probe is running. On a termination signal they are ended
+/// here: the `defer` in `ScriptRunner.run` never runs when the process is killed, and the
+/// wrappers would otherwise be reparented to launchd and keep their CLI alive indefinitely.
+private final class ChildRegistry: @unchecked Sendable {
+    static let shared = ChildRegistry()
+
+    private let lock = NSLock()
+    private var running: Set<pid_t> = []
+    private var closed = false
+
+    /// Returns false once shutdown has begun; the caller must then end the process itself.
+    func register(_ pid: pid_t) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return false }
+        running.insert(pid)
+        return true
+    }
+
+    func unregister(_ pid: pid_t) {
+        lock.lock()
+        running.remove(pid)
+        lock.unlock()
+    }
+
+    /// Ending `script` is enough: its CLI gets SIGHUP when the pseudo-terminal closes.
+    func terminateAll() {
+        lock.lock()
+        closed = true
+        let pids = running
+        lock.unlock()
+
+        for pid in pids { kill(pid, SIGTERM) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while ProcessInfo.processInfo.systemUptime < deadline, pids.contains(where: { kill($0, 0) == 0 }) {
+            usleep(50_000)
+        }
+        for pid in pids where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+    }
+}
+
+/// Ends `script` wrappers left behind by an earlier probe that died before cleaning up —
+/// SIGKILL cannot be intercepted, and versions before 1.0.8 did not handle SIGTERM at all.
+/// Matches only what this tool creates: `/usr/bin/script`, reparented to launchd, running
+/// in the probe's private working directory. The executable check matters: Codex's
+/// background daemon is also a launchd child and can inherit that directory.
+enum OrphanReaper {
+    static func reap(in directory: URL) {
+        let target = directory.resolvingSymlinksInPath().path
+        let orphans = orphanedWrappers(in: target)
+        guard !orphans.isEmpty else { return }
+        for pid in orphans { kill(pid, SIGTERM) }
+        usleep(1_000_000)
+        for pid in orphanedWrappers(in: target) { kill(pid, SIGKILL) }
+    }
+
+    private static func orphanedWrappers(in directory: String) -> [pid_t] {
+        let estimate = proc_listallpids(nil, 0)
+        guard estimate > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
+        let count = pids.withUnsafeMutableBytes { buffer in
+            proc_listallpids(buffer.baseAddress, Int32(buffer.count))
+        }
+        guard count > 0 else { return [] }
+        return pids.prefix(Int(count)).filter { $0 > 0 && isOrphanedWrapper($0, in: directory) }
+    }
+
+    private static func isOrphanedWrapper(_ pid: pid_t, in directory: String) -> Bool {
+        var info = proc_bsdinfo()
+        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize, info.pbi_ppid == 1 else {
+            return false
+        }
+
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0,
+              String(cString: path) == "/usr/bin/script"
+        else { return false }
+
+        var vnode = proc_vnodepathinfo()
+        let vnodeSize = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vnodeSize) == vnodeSize else { return false }
+        let workingDirectory = withUnsafeBytes(of: vnode.pvi_cdir.vip_path) { raw in
+            String(cString: raw.bindMemory(to: CChar.self).baseAddress!)
+        }
+        return workingDirectory == directory
+    }
+}
+
 enum ScriptRunner {
     static func run(
         service: String,
@@ -372,6 +461,10 @@ enum ScriptRunner {
         }
 
         try process.run()
+        guard ChildRegistry.shared.register(process.processIdentifier) else {
+            process.terminate()
+            throw ProbeError.message("\(service): Abfrage wurde abgebrochen.")
+        }
         defer {
             output.fileHandleForReading.readabilityHandler = nil
             input.fileHandleForWriting.closeFile()
@@ -381,6 +474,7 @@ enum ScriptRunner {
                 while process.isRunning && Date.now < deadline { usleep(50_000) }
                 if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
             }
+            ChildRegistry.shared.unregister(process.processIdentifier)
         }
 
         var plainOutput = ""
@@ -449,7 +543,7 @@ enum ScriptRunner {
         return plainOutput
     }
 
-    private static func probeDirectory() throws -> URL {
+    static func probeDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -657,5 +751,22 @@ if let parseService = argumentValue("--parse-output") {
     default: writePayload([.failure(service: parseService, error: "Unbekannter Testdienst.")])
     }
 } else {
+    // A no-op handler rather than SIG_IGN: ignored signals stay ignored in child processes,
+    // which would make `script` ignore our SIGTERM and the CLI ignore its SIGHUP. Caught
+    // signals reset to default on exec. The dispatch sources still see every delivery.
+    let terminationSources = [SIGTERM, SIGINT, SIGHUP].map { signalNumber -> DispatchSourceSignal in
+        signal(signalNumber) { _ in }
+        let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global(qos: .userInitiated))
+        source.setEventHandler {
+            ChildRegistry.shared.terminateAll()
+            exit(128 + signalNumber)
+        }
+        source.resume()
+        return source
+    }
+    if let directory = try? ScriptRunner.probeDirectory() {
+        OrphanReaper.reap(in: directory)
+    }
     writePayload(liveResults(for: argumentValue("--service") ?? "all"))
+    withExtendedLifetime(terminationSources) {}
 }

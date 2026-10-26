@@ -357,6 +357,10 @@ def probe_codex() -> ServiceUsage:
 
 
 def main() -> int:
+    # Python's default SIGTERM action exits without running `finally` blocks, which is
+    # where run_tui_probe ends its CLI session. Raise SystemExit instead so they run.
+    signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--service", choices=["all", "claude", "codex"], default="all")
     parser.add_argument("--pretty", action="store_true")

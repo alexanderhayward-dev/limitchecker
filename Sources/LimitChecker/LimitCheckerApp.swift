@@ -515,12 +515,23 @@ private enum ProbeRunner {
 
             do {
                 try process.run()
-                let deadline = Date.now.addingTimeInterval(75)
-                while process.isRunning && Date.now < deadline {
+                // systemUptime stands still while the Mac sleeps. A wall-clock deadline expired
+                // across every sleep and killed helpers that were merely suspended, before
+                // they could end their CLI sessions.
+                let deadline = ProcessInfo.processInfo.systemUptime + 75
+                while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
                 if process.isRunning {
+                    // SIGTERM lets the helper end its CLI sessions first; it needs about a second.
                     process.terminate()
+                    let grace = ProcessInfo.processInfo.systemUptime + 3
+                    while process.isRunning && ProcessInfo.processInfo.systemUptime < grace {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    if process.isRunning {
+                        kill(process.processIdentifier, SIGKILL)
+                    }
                     process.waitUntilExit()
                     return [
                         ServiceUsage.error(service: "claude", message: "Aktualisierung hat zu lange gedauert."),

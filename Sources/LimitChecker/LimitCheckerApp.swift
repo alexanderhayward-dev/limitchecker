@@ -126,7 +126,14 @@ private struct LimitMenuView: View {
                 Platter { UpdateBanner(store: updateStore) }
             }
 
-            Platter { UsageHistoryView(points: store.historyPoints, now: store.displayTime) }
+            Platter {
+                UsageHistoryView(
+                    points: store.historyPoints,
+                    now: store.displayTime,
+                    claudeWindowStart: store.claude?.currentWindowStart,
+                    codexWindowStart: store.codex?.currentWindowStart
+                )
+            }
 
             statusLine
                 .padding(.horizontal, Theme.platterPadding)
@@ -329,6 +336,13 @@ private struct LimitProgressBar: View {
     }
 }
 
+private struct HistorySample {
+    let time: Date
+    let percent: Int
+    /// Start of the 5-hour window this value belongs to, when known.
+    var windowStart: Date?
+}
+
 private struct HistorySeries {
     enum Marker { case circle, square }
 
@@ -336,7 +350,7 @@ private struct HistorySeries {
     let color: Color
     /// Tells the series apart without colour, at the line end and next to the name.
     let marker: Marker
-    let values: [(Date, Int)]
+    let values: [HistorySample]
 }
 
 private enum HistoryWindow {
@@ -345,7 +359,10 @@ private enum HistoryWindow {
     static let bucket: TimeInterval = 10 * 60
     /// Longer stretches without a measurement (the Mac was asleep) are bridged faintly.
     static let maxGap: TimeInterval = 25 * 60
-    /// Rises in percentage points that count as a reset: anywhere, or ending on 100 %.
+    /// Both charted limits are 5-hour windows: each one starts five hours before its reset.
+    static let sessionLength: TimeInterval = 5 * 60 * 60
+    /// Without a known window start: rises in percentage points that count as a reset,
+    /// anywhere or ending on 100 %.
     static let resetRise = 30
     static let resetRiseToFull = 10
 }
@@ -353,27 +370,63 @@ private enum HistoryWindow {
 private struct UsageHistoryView: View {
     let points: [UsageHistoryPoint]
     let now: Date
+    /// Start of the window running now, from the latest reading.
+    let claudeWindowStart: Date?
+    let codexWindowStart: Date?
 
     /// The values inside the visible window. Empty state, drawing, labels and VoiceOver
     /// all read this one set, so they cannot disagree about what is shown.
     private var series: [HistorySeries] {
         let start = now.addingTimeInterval(-HistoryWindow.span)
         let visible = points.filter { $0.timestamp >= start && $0.timestamp <= now }
+        func windowStart(_ resetAt: Date?) -> Date? {
+            resetAt?.addingTimeInterval(-HistoryWindow.sessionLength)
+        }
         return [
             HistorySeries(
                 name: "Claude",
                 color: Theme.claudeSeries,
                 marker: .circle,
-                values: visible.compactMap { point in point.claudeSessionPercentLeft.map { (point.timestamp, $0) } }
+                values: Self.fillingWindowStarts(
+                    visible.compactMap { point in
+                        point.claudeSessionPercentLeft.map {
+                            HistorySample(time: point.timestamp, percent: $0, windowStart: windowStart(point.claudeSessionResetAt))
+                        }
+                    },
+                    current: claudeWindowStart
+                )
             ),
             HistorySeries(
                 name: "Codex",
                 color: Theme.codexSeries,
                 marker: .square,
-                values: visible.compactMap { point in point.codexFiveHourPercentLeft.map { (point.timestamp, $0) } }
+                values: Self.fillingWindowStarts(
+                    visible.compactMap { point in
+                        point.codexFiveHourPercentLeft.map {
+                            HistorySample(time: point.timestamp, percent: $0, windowStart: windowStart(point.codexFiveHourResetAt))
+                        }
+                    },
+                    current: codexWindowStart
+                )
             ),
         ]
         .filter { !$0.values.isEmpty }
+    }
+
+    /// Points saved before 1.0.11 carry no reset time. Every point at or after a known window
+    /// start still belongs to that window, so the start is carried back from the newest known
+    /// one, beginning with the current reading, until the first point that predates it.
+    static func fillingWindowStarts(_ samples: [HistorySample], current: Date?) -> [HistorySample] {
+        var result = samples
+        var known = current
+        for index in result.indices.reversed() {
+            if let own = result[index].windowStart {
+                known = own
+            } else if let start = known, result[index].time >= start {
+                result[index].windowStart = start
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -424,15 +477,18 @@ private struct HistoryChart: View {
     private var summary: String {
         series.compactMap { item -> String? in
             guard let first = item.values.first, let last = item.values.last else { return nil }
-            var text = "\(item.name): \(Theme.percent(last.1)) frei"
-            if now.timeIntervalSince(last.0) > HistoryWindow.maxGap {
-                text += ", letzter Wert \(ago(last.0))"
+            var text = "\(item.name): \(Theme.percent(last.percent)) frei"
+            if now.timeIntervalSince(last.time) > HistoryWindow.maxGap {
+                text += ", letzter Wert \(ago(last.time))"
             }
             if item.values.count > 1 {
-                text += ", \(ago(first.0)) \(Theme.percent(first.1))"
+                text += ", \(ago(first.time)) \(Theme.percent(first.percent))"
             }
-            let resets = Self.resetCount(in: item.values)
-            if resets > 0 { text += resets == 1 ? ", ein Reset" : ", \(resets) Resets" }
+            let resets = Self.resetMoments(in: item.values)
+            if let latest = resets.last {
+                let time = latest.formatted(date: .omitted, time: .shortened)
+                text += resets.count == 1 ? ", Reset um \(time)" : ", \(resets.count) Resets, zuletzt um \(time)"
+            }
             return text
         }
         .joined(separator: "; ")
@@ -443,26 +499,32 @@ private struct HistoryChart: View {
         return minutes < 60 ? "vor \(max(minutes, 1)) Min." : "vor \(Int((Double(minutes) / 60).rounded())) Std."
     }
 
-    /// Usage only ever lowers the remaining quota, so a rise means a reset: a large one even
-    /// when the next measurement no longer reads exactly 100 %, a smaller one when it lands
-    /// on 100 %. A point or two is rounding. After a gap the moment is unknown, so none is claimed.
-    static func isReset(from previous: (Date, Int), to value: (Date, Int)) -> Bool {
-        let rise = value.1 - previous.1
-        let isJump = rise >= HistoryWindow.resetRise || (value.1 == 100 && rise >= HistoryWindow.resetRiseToFull)
-        return isJump && value.0.timeIntervalSince(previous.0) <= HistoryWindow.maxGap
+    /// When the window rolled over between two samples, if it did. Exact when the later sample
+    /// knows its window start, even across a stretch the Mac slept through. Without one, a sharp
+    /// rise between close samples counts: usage only lowers the remaining quota.
+    static func resetMoment(from previous: HistorySample, to value: HistorySample) -> Date? {
+        if let start = value.windowStart {
+            // A window nobody used rolls over without anything to show.
+            guard start > previous.time, start <= value.time, previous.percent < 100 else { return nil }
+            return start
+        }
+        let rise = value.percent - previous.percent
+        let isJump = rise >= HistoryWindow.resetRise || (value.percent == 100 && rise >= HistoryWindow.resetRiseToFull)
+        guard isJump, value.time.timeIntervalSince(previous.time) <= HistoryWindow.maxGap else { return nil }
+        return value.time
     }
 
-    static func resetCount(in values: [(Date, Int)]) -> Int {
+    static func resetMoments(in values: [HistorySample]) -> [Date] {
         let values = bucketed(values)
-        return zip(values, values.dropFirst()).filter { isReset(from: $0, to: $1) }.count
+        return zip(values, values.dropFirst()).compactMap { resetMoment(from: $0, to: $1) }
     }
 
-    /// The last value of every bucket, at its own time.
-    static func bucketed(_ values: [(Date, Int)]) -> [(Date, Int)] {
-        var result: [(Date, Int)] = []
+    /// The last sample of every bucket, at its own time.
+    static func bucketed(_ values: [HistorySample]) -> [HistorySample] {
+        var result: [HistorySample] = []
         var currentBucket: Int?
         for value in values {
-            let bucket = Int(value.0.timeIntervalSinceReferenceDate / HistoryWindow.bucket)
+            let bucket = Int(value.time.timeIntervalSinceReferenceDate / HistoryWindow.bucket)
             if bucket == currentBucket {
                 result[result.count - 1] = value
             } else {
@@ -520,33 +582,49 @@ private struct HistoryChart: View {
             let values = Self.bucketed(item.values)
             var measured = Path()
             var bridged = Path()
-            for (previous, value) in zip(values, values.dropFirst()) {
-                let from = CGPoint(x: x(previous.0), y: y(previous.1))
-                let to = CGPoint(x: x(value.0), y: y(value.1))
-                if value.0.timeIntervalSince(previous.0) > HistoryWindow.maxGap {
-                    // No measurements in between: keep the course readable, but faint, so
-                    // the estimate does not pass for data.
+            // Stretches without measurements stay readable, but faint, so the estimate does
+            // not pass for data.
+            func segment(_ from: CGPoint, _ to: CGPoint, spanning duration: TimeInterval) {
+                if duration > HistoryWindow.maxGap {
                     bridged.move(to: from)
                     bridged.addLine(to: to)
+                } else {
+                    measured.move(to: from)
+                    measured.addLine(to: to)
+                }
+            }
+
+            for (previous, value) in zip(values, values.dropFirst()) {
+                let from = CGPoint(x: x(previous.time), y: y(previous.percent))
+                let to = CGPoint(x: x(value.time), y: y(value.percent))
+                guard let reset = Self.resetMoment(from: previous, to: value) else {
+                    segment(from, to, spanning: value.time.timeIntervalSince(previous.time))
                     continue
                 }
-                measured.move(to: from)
-                measured.addLine(to: to)
-                if Self.isReset(from: previous, to: value) {
-                    var marker = Path()
-                    marker.move(to: CGPoint(x: to.x, y: plot.minY))
-                    marker.addLine(to: CGPoint(x: to.x, y: plot.maxY))
-                    context.stroke(marker, with: .color(item.color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    // Above the plot, so the label never sits on a line.
-                    let labelX = min(max(to.x, plot.minX + 16), plot.maxX - 16)
-                    if resetLabels.allSatisfy({ abs($0 - labelX) > 40 }) {
-                        resetLabels.append(labelX)
-                        context.draw(
-                            Text("Reset").font(.subheadline).foregroundStyle(Theme.secondaryText),
-                            at: CGPoint(x: labelX, y: 0),
-                            anchor: .top
-                        )
-                    }
+
+                // A reset is a jump at a known moment: the old level holds until then, the
+                // quota returns to 100 %, and use in the new window takes it down again.
+                let resetX = x(reset)
+                let hold = CGPoint(x: resetX, y: from.y)
+                let full = CGPoint(x: resetX, y: y(100))
+                segment(from, hold, spanning: reset.timeIntervalSince(previous.time))
+                measured.move(to: hold)
+                measured.addLine(to: full)
+                segment(full, to, spanning: value.time.timeIntervalSince(reset))
+
+                var marker = Path()
+                marker.move(to: CGPoint(x: resetX, y: plot.minY))
+                marker.addLine(to: CGPoint(x: resetX, y: plot.maxY))
+                context.stroke(marker, with: .color(item.color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                // Above the plot, so the label never sits on a line.
+                let labelX = min(max(resetX, plot.minX + 16), plot.maxX - 16)
+                if resetLabels.allSatisfy({ abs($0 - labelX) > 40 }) {
+                    resetLabels.append(labelX)
+                    context.draw(
+                        Text("Reset").font(.subheadline).foregroundStyle(Theme.secondaryText),
+                        at: CGPoint(x: labelX, y: 0),
+                        anchor: .top
+                    )
                 }
             }
             let style = StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
@@ -558,7 +636,7 @@ private struct HistoryChart: View {
         // a thin leader joins marker and label whenever the label had to move or the data is old.
         let ends = series.compactMap { item -> (HistorySeries, CGPoint, Int)? in
             guard let last = item.values.last else { return nil }
-            return (item, CGPoint(x: x(last.0), y: y(last.1)), last.1)
+            return (item, CGPoint(x: x(last.time), y: y(last.percent)), last.percent)
         }
         .sorted { $0.1.y < $1.1.y }
         var labelYs = ends.map(\.1.y)
@@ -630,7 +708,7 @@ private struct HistoryChartDescriptor: AXChartDescriptorRepresentable {
                 name: item.name,
                 isContinuous: false,
                 dataPoints: item.values.map { value in
-                    AXDataPoint(x: value.0.timeIntervalSince(now) / 3600, y: Double(value.1))
+                    AXDataPoint(x: value.time.timeIntervalSince(now) / 3600, y: Double(value.percent))
                 }
             )
         }
@@ -768,10 +846,15 @@ final class UsageStore: ObservableObject {
     }
 
     private func appendHistory(at timestamp: Date) {
+        func resetAt(_ usage: ServiceUsage?) -> Date? {
+            usage.flatMap { $0.windows.first?.resetDate(capturedAt: $0.capturedAt, capturedZone: $0.capturedZone) }
+        }
         let point = UsageHistoryPoint(
             timestamp: timestamp,
             claudeSessionPercentLeft: claude?.windows.first?.percentLeft,
-            codexFiveHourPercentLeft: codex?.windows.first?.percentLeft
+            codexFiveHourPercentLeft: codex?.windows.first?.percentLeft,
+            claudeSessionResetAt: resetAt(claude),
+            codexFiveHourResetAt: resetAt(codex)
         )
         historyPoints = UsageHistory.append(point, to: historyPoints)
     }
@@ -855,6 +938,13 @@ struct ServiceUsage: Decodable {
         case service, ok, windows, error
     }
 
+    /// Start of the 5-hour window, five hours before its reset.
+    var currentWindowStart: Date? {
+        windows.first?
+            .resetDate(capturedAt: capturedAt, capturedZone: capturedZone)?
+            .addingTimeInterval(-HistoryWindow.sessionLength)
+    }
+
     static func error(service: String, message: String) -> ServiceUsage {
         ServiceUsage(service: service, ok: false, windows: [], error: message, capturedAt: .now)
     }
@@ -882,6 +972,10 @@ struct LimitWindow: Decodable, Identifiable {
 
     var id: String { name }
     var percentLeft: Int { percentLeftValue ?? max(0, 100 - (percentUsed ?? 0)) }
+
+    func resetDate(capturedAt: Date, capturedZone: TimeZone) -> Date? {
+        rawResets.flatMap { ResetTimeFormatter.instant($0, capturedAt: capturedAt, capturedZone: capturedZone) }
+    }
 
     func resetText(capturedAt: Date, capturedZone: TimeZone, now: Date) -> String? {
         rawResets.map { ResetTimeFormatter.display($0, capturedAt: capturedAt, capturedZone: capturedZone, now: now) }
@@ -920,6 +1014,10 @@ struct UsageHistoryPoint: Codable, Identifiable {
     let timestamp: Date
     let claudeSessionPercentLeft: Int?
     let codexFiveHourPercentLeft: Int?
+    /// When the measured 5-hour window resets. Lets the chart place resets the Mac slept
+    /// through; points saved before 1.0.11 have none.
+    var claudeSessionResetAt: Date? = nil
+    var codexFiveHourResetAt: Date? = nil
 
     var id: Date { timestamp }
 }
@@ -981,10 +1079,9 @@ enum ResetTimeFormatter {
         now: Date,
         displayZone: TimeZone = .current
     ) -> String {
-        let cleaned = raw.replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sourceZone = namedZone(in: raw) ?? capturedZone
-        guard let date = resetDate(cleaned, capturedAt: capturedAt, zone: sourceZone) else { return cleaned }
+        guard let date = instant(raw, capturedAt: capturedAt, capturedZone: capturedZone) else {
+            return cleaned(raw)
+        }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = displayZone
@@ -1001,6 +1098,16 @@ enum ResetTimeFormatter {
         case -1: return "gestern \(time)"
         default: return "\(parts.day ?? 0). \(monthNames[(parts.month ?? 1) - 1]), \(time)"
         }
+    }
+
+    /// The reset as a fixed instant, in the zone the text names or else the capture zone.
+    static func instant(_ raw: String, capturedAt: Date, capturedZone: TimeZone) -> Date? {
+        resetDate(cleaned(raw), capturedAt: capturedAt, zone: namedZone(in: raw) ?? capturedZone)
+    }
+
+    private static func cleaned(_ raw: String) -> String {
+        raw.replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// "(Europe/Berlin)" as Claude Code prints it, or any other zone name or abbreviation.

@@ -168,11 +168,18 @@ keine Einzelmessungen.** Lesbarkeit geht vor Messgenauigkeit.
 - Jede Linie endet an ihrem tatsächlich letzten Wert. Rechts daneben stehen Name
   und Wert; mussten die Beschriftungen auseinanderrücken oder sind die Daten älter,
   verbindet eine feine Führungslinie Marke und Beschriftung.
-- Reset: Ein deutlicher Anstieg zwischen zwei gemessenen Werten – mindestens 30
-  Punkte (`resetRise`) oder um mindestens 10 Punkte auf genau 100 %
-  (`resetRiseToFull`) – bekommt eine gestrichelte Senkrechte und das Wort „Reset"
-  über der Zeichenfläche. In einer überbrückten Strecke wird kein Reset-Zeitpunkt
-  behauptet.
+- Resets müssen sichtbar sein, auch wenn der Mac sie verschlafen hat. Beide
+  Linien zeigen 5-Stunden-Fenster, und jedes Fenster beginnt genau 5 Stunden vor
+  seinem Reset. Darum speichert jeder Verlaufspunkt die Reset-Zeit seines Fensters
+  (seit 1.0.11). Ältere Punkte erben den Fensterbeginn vom nächstjüngeren
+  bekannten, angefangen beim aktuellen Wert, solange sie nicht davor liegen.
+- Beginnt zwischen zwei Werten ein neues Fenster, ist das ein Reset zu genau diesem
+  Zeitpunkt: Die Linie hält den alten Stand bis dahin, springt auf 100 % und fällt
+  dann zum nächsten Wert. Dazu eine gestrichelte Senkrechte und „Reset" über der
+  Zeichenfläche. Ein Fenster, das unbenutzt bei 100 % endete, bekommt keinen Marker.
+- Nur ohne bekannten Fensterbeginn gilt die Ersatzregel: ein Anstieg zwischen zwei
+  nahen Werten um mindestens 30 Punkte (`resetRise`) oder um mindestens 10 Punkte
+  auf genau 100 % (`resetRiseToFull`).
 - Leerzustand, Zeichnung, Beschriftung und VoiceOver lesen dieselben sichtbaren
   Daten. VoiceOver bekommt eine Zusammenfassung (Wert jetzt, Alter des letzten
   Werts, wenn er älter als 25 Minuten ist, Wert zu Beginn, Resets) und über

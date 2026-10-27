@@ -213,7 +213,9 @@ keine Einzelmessungen.** Lesbarkeit geht vor Messgenauigkeit.
   Warndreieck in `warning`. Liegen ältere Werte vor, bleiben sie stehen und der
   Hinweis steht darunter.
 - *Leer:* Ein Satz, was passiert, kein leeres Diagramm.
-- *Status* (Fußzeile): „Aktuell · 21:20"; bei Problemen mit Warndreieck davor.
+- *Status* (Fußzeile): links „Aktuell · 21:20", bei Problemen mit Warndreieck
+  davor; rechts die installierte Version („Version 1.0.13"), damit sie ohne
+  Klick ins Menü zu sehen ist.
 
 ## 6. Layout
 

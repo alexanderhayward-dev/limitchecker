@@ -199,10 +199,16 @@ private struct LimitMenuView: View {
             }
 
             MenuSeparator()
-            statusLine
-                .padding(.horizontal, Theme.sectionInset)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+            HStack(alignment: .firstTextBaseline) {
+                statusLine
+                Spacer()
+                Text("Version \(updateStore.currentVersionText)")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondaryText)
+            }
+            .padding(.horizontal, Theme.sectionInset)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
         }
         .frame(width: Theme.width)
         .background(GlassShade())

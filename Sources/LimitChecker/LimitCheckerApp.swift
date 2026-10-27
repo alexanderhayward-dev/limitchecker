@@ -49,19 +49,19 @@ private struct MenuBarLabel: View {
 /// the values live here.
 enum Theme {
     static let width: CGFloat = 400
-    static let outerPadding: CGFloat = 12
-    static let platterPadding: CGFloat = 12
-    static let platterSpacing: CGFloat = 8
-    static let platterRadius: CGFloat = 10
+    /// Side inset of text and separators, as in Apple's menus.
+    static let sectionInset: CGFloat = 16
+    static let sectionPadding: CGFloat = 12
     static let rowSpacing: CGFloat = 12
     static let barHeight: CGFloat = 6
     static let hitTarget: CGFloat = 24
+    static let iconSize: CGFloat = 28
 
-    static let platterFill = Color.primary.opacity(0.05)
-    static let hairline = Color.primary.opacity(0.08)
+    static let separator = Color.primary.opacity(0.12)
     static let barTrack = Color.primary.opacity(0.10)
-    /// The grey disc Apple's menus use for an item that is not active.
-    static let inactiveDisc = Color.primary.opacity(0.12)
+    /// Darkens the window's glass in dark mode to the depth of the system menus, which sit
+    /// on a darker glass than a SwiftUI menu bar window gets by default.
+    static let darkGlassShade = Color.black.opacity(0.3)
     static let gridline = Color.secondary.opacity(0.25)
     static let leader = Color.secondary.opacity(0.5)
     /// Line opacity across time without measurements, usually a sleeping Mac.
@@ -71,14 +71,23 @@ enum Theme {
     /// this tone measured 5.6:1 light and 5.9:1 dark.
     static let secondaryText = Color.primary.opacity(0.72)
 
-    /// Colour means one of two things. Each service has its own, the way Apple's menus fill
-    /// the active item with the accent colour: its disc, its bars and its chart line. It stays
-    /// clear of the signal colours.
-    static let claude = ServiceStyle(color: .purple, symbol: "sparkle")
-    static let codex = ServiceStyle(color: .blue, symbol: "chevron.left.forwardslash.chevron.right")
+    /// Colour means one of two things. Each service has its brand colour, taken from its app
+    /// icon: its bars and its chart line. The icon itself is the original one, read from the
+    /// installed app.
+    static let claude = ServiceStyle(
+        color: Color(red: 0xD9 / 255, green: 0x77 / 255, blue: 0x57 / 255),
+        icon: .appIcon(bundleID: "com.anthropic.claudefordesktop"),
+        fallbackSymbol: "asterisk"
+    )
+    static let codex = ServiceStyle(
+        color: Color(red: 0x64 / 255, green: 0x7A / 255, blue: 0xF8 / 255),
+        icon: .appResource(bundleID: "com.openai.codex", light: "icon-codex-light", dark: "icon-codex-dark-color"),
+        fallbackSymbol: "cloud.fill"
+    )
 
-    /// The signals: they take over a bar that runs low and mark problems. They colour fills
-    /// and symbols, never text, which they would not carry legibly on a light background.
+    /// The signals: red takes over a bar that runs low, orange marks problems. They colour
+    /// fills and symbols, never text, which they would not carry legibly on a light background.
+    /// Orange no longer marks a half-used bar: Claude's own colour is orange.
     static let warning = Color.orange
     static let critical = Color.red
 
@@ -87,21 +96,62 @@ enum Theme {
 }
 
 struct ServiceStyle {
+    enum IconSource {
+        case appIcon(bundleID: String)
+        /// The Codex app shows its cloud icon from a resource; its bundle icon is another one.
+        case appResource(bundleID: String, light: String, dark: String)
+    }
+
     let color: Color
-    let symbol: String
+    let icon: IconSource
+    /// Shown on a disc in the service colour when the app is not installed.
+    let fallbackSymbol: String
 }
 
-/// A Control-Center-style module on the window's material.
-private struct Platter<Content: View>: View {
+/// Reads the services' original icons from the installed apps, so none ship with LimitChecker.
+@MainActor
+enum ServiceIcons {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(for source: ServiceStyle.IconSource, dark: Bool) -> NSImage? {
+        let key = "\(source)-\(dark)"
+        if let cached = cache[key] { return cached }
+        let image: NSImage?
+        switch source {
+        case .appIcon(let bundleID):
+            image = appURL(bundleID).map { NSWorkspace.shared.icon(forFile: $0.path) }
+        case .appResource(let bundleID, let light, let darkName):
+            image = appURL(bundleID)
+                .flatMap { Bundle(url: $0)?.url(forResource: dark ? darkName : light, withExtension: "png") }
+                .flatMap { NSImage(contentsOf: $0) }
+        }
+        if let image { cache[key] = image }
+        return image
+    }
+
+    private static func appURL(_ bundleID: String) -> URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+    }
+}
+
+/// A section of the window, sitting directly on the glass like the sections of Apple's menus.
+private struct MenuSection<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Theme.platterRadius, style: .continuous)
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.platterPadding)
-            .background(Theme.platterFill, in: shape)
-            .overlay(shape.strokeBorder(Theme.hairline))
+            .padding(.horizontal, Theme.sectionInset)
+            .padding(.vertical, Theme.sectionPadding)
+    }
+}
+
+private struct MenuSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.separator)
+            .frame(height: 1)
+            .padding(.horizontal, Theme.sectionInset)
     }
 }
 
@@ -110,10 +160,10 @@ private struct LimitMenuView: View {
     @ObservedObject var updateStore: UpdateStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.platterSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             header
-
-            ServicePlatter(
+            MenuSeparator()
+            ServiceSection(
                 title: "Claude Code",
                 style: Theme.claude,
                 usage: store.claude,
@@ -121,7 +171,8 @@ private struct LimitMenuView: View {
                 isRefreshing: store.isRefreshing,
                 now: store.displayTime
             )
-            ServicePlatter(
+            MenuSeparator()
+            ServiceSection(
                 title: "Codex",
                 style: Theme.codex,
                 usage: store.codex,
@@ -133,10 +184,12 @@ private struct LimitMenuView: View {
             // After the quotas: the window answers "how much is left" first. The menu bar
             // dot already announces the update.
             if updateStore.availableRelease != nil {
-                Platter { UpdateBanner(store: updateStore) }
+                MenuSeparator()
+                MenuSection { UpdateBanner(store: updateStore) }
             }
 
-            Platter {
+            MenuSeparator()
+            MenuSection {
                 UsageHistoryView(
                     points: store.historyPoints,
                     now: store.displayTime,
@@ -145,12 +198,14 @@ private struct LimitMenuView: View {
                 )
             }
 
+            MenuSeparator()
             statusLine
-                .padding(.horizontal, Theme.platterPadding)
-                .padding(.top, 2)
+                .padding(.horizontal, Theme.sectionInset)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
         }
-        .padding(Theme.outerPadding)
         .frame(width: Theme.width)
+        .background(GlassShade())
         .onAppear {
             store.start()
             updateStore.start()
@@ -180,7 +235,10 @@ private struct LimitMenuView: View {
             }
             OptionsMenu(updateStore: updateStore)
         }
-        .padding(.leading, Theme.platterPadding)
+        .padding(.leading, Theme.sectionInset)
+        .padding(.trailing, Theme.sectionInset - 6)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
@@ -225,7 +283,18 @@ private struct OptionsMenu: View {
     }
 }
 
-private struct ServicePlatter: View {
+/// Darkens the glass in dark mode only; Apple's light menus are as light as ours.
+private struct GlassShade: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .dark {
+            Theme.darkGlassShade
+        }
+    }
+}
+
+private struct ServiceSection: View {
     let title: String
     let style: ServiceStyle
     let usage: ServiceUsage?
@@ -234,10 +303,10 @@ private struct ServicePlatter: View {
     let now: Date
 
     var body: some View {
-        Platter {
+        MenuSection {
             VStack(alignment: .leading, spacing: Theme.rowSpacing) {
-                HStack(spacing: 8) {
-                    ServiceDisc(style: style, isActive: usage?.ok == true)
+                HStack(spacing: 6) {
+                    ServiceIcon(style: style, isActive: usage?.ok == true)
                     Text(title)
                         .font(.body.weight(.semibold))
                 }
@@ -276,19 +345,32 @@ private struct ServicePlatter: View {
     }
 }
 
-/// The service's symbol on a filled disc, as Apple's menus mark the active item. Without
-/// current data the disc turns grey, as Apple shows an inactive one.
-private struct ServiceDisc: View {
+/// The service's own app icon. Without current data it turns grey, as Apple's menus show an
+/// inactive item.
+private struct ServiceIcon: View {
     let style: ServiceStyle
     let isActive: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        Image(systemName: style.symbol)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(isActive ? Color.white : Theme.secondaryText)
-            .frame(width: 24, height: 24)
-            .background(isActive ? style.color : Theme.inactiveDisc, in: Circle())
-            .accessibilityHidden(true)
+        Group {
+            if let image = ServiceIcons.image(for: style.icon, dark: colorScheme == .dark) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                Image(systemName: style.fallbackSymbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: Theme.iconSize - 6, height: Theme.iconSize - 6)
+                    .background(style.color, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+        .frame(width: Theme.iconSize, height: Theme.iconSize)
+        .saturation(isActive ? 1 : 0)
+        .opacity(isActive ? 1 : 0.5)
+        .accessibilityHidden(true)
     }
 }
 
@@ -342,7 +424,6 @@ private struct LimitRow: View {
     private var tint: Color {
         switch window.percentLeft {
         case ...20: Theme.critical
-        case ...50: Theme.warning
         default: color
         }
     }

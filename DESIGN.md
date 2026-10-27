@@ -2,36 +2,37 @@
 version: 1
 name: LimitChecker
 description: |
-  Detailfenster einer macOS-Menüleisten-App. Native Systemschrift und
-  Systemfarben, Module im Stil des Kontrollzentrums auf dem Fenstermaterial,
-  jeder Dienst mit eigener Farbe, Orange und Rot als Signal. Hell und dunkel ohne eigene Varianten, weil alles aus
-  Systemfarben und Deckkraftstufen von `.primary` gebaut ist.
+  Detailfenster einer macOS-Menüleisten-App. Native Systemschrift, Abschnitte
+  direkt auf dem Glas mit Trennlinien wie in Apples WLAN-Menü, jeder Dienst mit
+  seinem Original-App-Icon und seiner Markenfarbe, Rot und Orange als Signal.
+  Hell und dunkel ohne eigene Varianten, bis auf die Abdunklung des Glases im
+  dunklen Modus.
 
 tokens: Sources/LimitChecker/LimitCheckerApp.swift → enum Theme
 
 colors:
-  platter-fill: "primary 5 %"        # Modulfläche
-  hairline: "primary 8 %"            # Modulrand
+  separator: "primary 12 %"          # Trennlinie zwischen Abschnitten
+  dark-glass-shade: "black 30 %"     # nur dunkel: Glas so tief wie Apples Menüs
   bar-track: "primary 10 %"          # leere Balkenspur
-  inactive-disc: "primary 12 %"      # Dienstkreis ohne aktuelle Daten
   gridline: "secondary 25 %"         # Diagrammraster
   secondary-text: "primary 72 %"     # sekundärer Text, gemessen ≥ 5,6 : 1
-  warning: "systemOrange"            # Balken ≤ 50 %, Warnsymbole – nie Text
+  warning: "systemOrange"            # Warnsymbole – nie Text, nie Balken
   critical: "systemRed"              # Balken ≤ 20 %
-  claude: "systemPurple"             # Kreis „sparkle", Balken, Verlauf (Endmarke Kreis)
-  codex: "systemBlue"                # Kreis „</>", Balken, Verlauf (Endmarke Quadrat)
+  claude: "#D97757"                  # aus dem Claude-Icon: Balken, Verlauf (Endmarke Kreis)
+  codex: "#647AF8"                   # aus der Codex-Wolke: Balken, Verlauf (Endmarke Quadrat)
 
 typography:   # macOS-Textstile, gemessen
   headline: 13 pt fett       # Fenstertitel
-  body-semibold: 13 pt       # Modultitel
+  body-semibold: 13 pt       # Dienstname
   title3-semibold: 15 pt     # Prozentwert, Ziffern gleich breit
   callout: 12 pt             # Bezeichnungen, Reset-Zeit, Hinweise, Fließtext
   subheadline: 11 pt         # Achsen, Status
 
-spacing: { outer: 12, platter-padding: 12, platter-gap: 8, row-gap: 12, bar: 6 }
-radius: { platter: 10, bar: Kapsel }
+spacing: { section-inset: 16, section-padding: 12, row-gap: 12, bar: 6 }
+radius: { bar: Kapsel }
 width: 400
 hit-target: 24
+icon: 28
 ---
 
 # LimitChecker – Designsystem
@@ -50,30 +51,34 @@ bleibt, wie er ist.
   zurück.
 - **Nativ statt eigen.** Systemschrift, Systemfarben und Systemsteuerelemente.
   Das Fenster soll neben Kontrollzentrum und WLAN-Menü nicht auffallen.
-- **Farbe hat eine Bedeutung: welcher Dienst, oder Achtung.** Wie Apples WLAN-
-  und Tonmenü das aktive Element in Akzentfarbe füllen (Kreis mit weißem Symbol,
-  gefüllter Regler), trägt hier jeder Dienst seine Farbe. Orange und Rot
-  übernehmen, sobald etwas Aufmerksamkeit braucht. Eine reine Graustufen-Fassung
-  (1.0.9) wirkte leblos und hat die Dienste nicht unterscheidbar gemacht.
-- **Tiefe durch Flächen, nicht durch Schatten.** Module heben sich durch eine
-  leichte Fläche und eine Haarlinie vom Fenstermaterial ab.
+- **Farbe hat eine Bedeutung: welcher Dienst, oder Achtung.** Jeder Dienst
+  erscheint mit seinem echten App-Icon und trägt dessen Markenfarbe in Balken und
+  Verlauf: Claude Orange, Codex das Indigo der Wolke. Rot übernimmt, wenn ein
+  Balken knapp wird. Eine reine Graustufen-Fassung (1.0.9) wirkte leblos; eigene
+  Farben und SF-Symbole statt der Originale (1.0.11, Claude Lila) wirkten fremd.
+- **Das Glas trägt, keine Kästen.** Wie in Apples WLAN-Menü stehen die Abschnitte
+  direkt auf dem Fensterglas, getrennt durch feine Linien. Graue Modulflächen
+  (bis 1.0.11) hellten das Fenster auf und ließen es neben den Systemmenüs grau
+  und matt wirken. Im dunklen Modus wird das Glas zusätzlich abgedunkelt
+  (`darkGlassShade`): Ein SwiftUI-Menüleistenfenster bekommt helleres Glas als die
+  Systemmenüs, gemessen etwa 43 statt 30 von 255 auf demselben Hintergrund.
 
 ## 2. Farben und ihre Rollen
 
 | Rolle | Token | Einsatz |
 |---|---|---|
-| Modulfläche | `platterFill` | Hintergrund jedes Moduls |
-| Haarlinie | `hairline` | Modulrand |
+| Trennlinie | `separator` | zwischen den Abschnitten, eingerückt wie der Text |
+| Glasabdunklung | `darkGlassShade` | ganzes Fenster, nur im dunklen Modus |
 | Sekundärer Text | `secondaryText` | Bezeichnungen, „frei", Reset-Zeit, Achsen, Status |
-| Dienstfarbe | `claude.color` (Lila) / `codex.color` (Blau) | Kreis vor dem Dienstnamen, Balken bei mehr als 50 % frei, Linie im Verlauf |
-| Inaktiv | `inactiveDisc` | Kreis eines Dienstes ohne aktuelle Daten (grau, Symbol in `secondaryText`) |
-| Warnung | `warning` (Orange) | Balken bei 21–50 % frei, Warnsymbol bei Hinweisen und im Status |
+| Dienstfarbe | `claude.color` (#D97757) / `codex.color` (#647AF8) | Balken über 20 % frei, Linie im Verlauf |
+| Warnung | `warning` (Orange) | Warnsymbol bei Hinweisen und im Status |
 | Kritisch | `critical` (Rot) | Balken bei 20 % frei und weniger |
 | Akzent | `Color.accentColor` | Kreis des Update-Hinweises |
 
 Regeln:
-- Orange bedeutet überall dasselbe: *Achtung*. Darum sind die Dienstfarben Lila
-  und Blau und nie Orange, Rot oder Grün.
+- Die Dienstfarben sind die Markenfarben, gemessen an den App-Icons. Weil Claude
+  orange ist, färbt Orange keinen Balken mehr als Warnung; knapp wird ein Balken
+  erst bei 20 %, dann rot. Orange als Signal bleibt nur das Warndreieck.
 - Kein Grün. Rot/Grün ist das häufigste Problempaar bei Farbschwäche, und „alles
   in Ordnung" braucht keine Farbe.
 - Farbe trägt nie allein Bedeutung: Jeder Balken steht neben seiner Zahl, jede
@@ -83,7 +88,7 @@ Regeln:
   etwa 2 : 1. Einzige Ausnahme sind Links („Manuell herunterladen") in der
   Systemlinkfarbe, an der man sie als Link erkennt.
 - `secondaryText` statt des System-Sekundärgraus: Das Systemgrau kam auf der
-  hellen Modulfläche auf 3,9 : 1, `secondaryText` auf 5,6 : 1 (hell) und 5,9 : 1
+  früheren hellen Modulfläche auf 3,9 : 1, `secondaryText` auf 5,6 : 1 (hell) und 5,9 : 1
   (dunkel), gemessen an Renderings. Ziel ist mindestens 4,5 : 1.
 
 ## 3. Typografie
@@ -94,7 +99,7 @@ Nur die macOS-Textstile, keine festen Größen. Auf macOS sind `.caption` und
 | Element | Stil | Größe |
 |---|---|---|
 | Fenstertitel „LimitChecker" | `.headline` | 13 pt fett |
-| Modultitel | `.body.weight(.semibold)` | 13 pt |
+| Dienstname | `.body.weight(.semibold)` | 13 pt |
 | Prozentwert | `.title3.weight(.semibold)` + `.monospacedDigit()` | 15 pt |
 | Bezeichnung, „frei", Reset-Zeit, Hinweise | `.callout` | 12 pt |
 | Achsen, Status | `.subheadline` | 11 pt |
@@ -141,16 +146,22 @@ Größe den Knopf, damit nichts verrutscht.
 bewusst im Menü und nicht im Fenster: selten gebraucht, nicht versehentlich
 klickbar.
 
-**Dienstkreis** (`ServiceDisc`) – 24 pt, gefüllt in der Dienstfarbe mit weißem
-SF-Symbol (Claude „sparkle", Codex „chevron.left.forwardslash.chevron.right"),
-links vom Dienstnamen. Ohne aktuelle Daten grau wie bei Apple das Inaktive. Der
-Update-Hinweis trägt denselben Kreis in Akzentfarbe.
+**Dienst-Icon** (`ServiceIcon`) – das Original-Icon der installierten App,
+28 pt, links vom Dienstnamen. Es wird zur Laufzeit gelesen (`ServiceIcons`), damit
+keine fremden Logos im Repository liegen: Claude aus dem Bundle-Icon von
+`com.anthropic.claudefordesktop`, Codex aus den Ressourcen von `com.openai.codex`
+(`icon-codex-dark-color` dunkel, `icon-codex-light` hell), denn das Bundle-Icon
+der Codex-App ist das ChatGPT-Logo, im Dock erscheint aber die Wolke. Ohne
+installierte App: SF-Symbol auf einem Quadrat in der Dienstfarbe. Ohne aktuelle
+Daten grau und halb transparent, wie bei Apple das Inaktive. Der Update-Hinweis
+trägt einen Kreis in Akzentfarbe.
 
-**Modul** (`Platter`) – Fläche `platterFill`, Haarlinie, Radius 10 pt
-(continuous), Innenabstand 12 pt. Reihenfolge: Claude Code, Codex, bei Bedarf
-der Update-Hinweis, dann der Verlauf. Keine Trennlinien zwischen Modulen.
+**Abschnitt** (`MenuSection`, `MenuSeparator`) – Inhalt 16 pt eingerückt, 12 pt
+oben und unten, dazwischen eine 1-pt-Linie `separator` mit derselben Einrückung.
+Reihenfolge: Kopfzeile, Claude Code, Codex, bei Bedarf der Update-Hinweis, der
+Verlauf, die Statuszeile.
 
-**Update-Hinweis** – eigenes Modul **nach** den Kontingenten, normaler Knopf
+**Update-Hinweis** – eigener Abschnitt **nach** den Kontingenten, normaler Knopf
 (`.bordered`), kein hervorgehobener. Das Fenster beantwortet zuerst, wie viel
 noch frei ist; das Update meldet ohnehin der Punkt in der Menüleiste.
 
@@ -158,8 +169,7 @@ noch frei ist; das Update meldet ohnehin der Punkt in der Menüleiste.
 rechts, darunter der Balken (6 pt, Kapsel), darunter die Reset-Zeit. VoiceOver
 liest die Zeile als eine Einheit.
 
-**Balken** – Spur `barTrack`, Füllung nach Schwelle: Dienstfarbe über 50 %,
-Orange ab 50 %, Rot ab 20 %. Wertänderungen gleiten in 0,35 s, außer bei „Bewegung
+**Balken** – Spur `barTrack`, Füllung in der Dienstfarbe, Rot ab 20 %. Wertänderungen gleiten in 0,35 s, außer bei „Bewegung
 reduzieren".
 
 **Verlauf** (`HistoryChart`) – ein Diagramm für beide Dienste: gemeinsame Skala
@@ -199,7 +209,7 @@ keine Einzelmessungen.** Lesbarkeit geht vor Messgenauigkeit.
 **Zustände**
 - *Laden ohne Daten:* Platzhalter in der Form echter Zeilen (`.redacted`), Balken
   ohne Füllung, damit nichts wie ein Messwert aussieht.
-- *Fehler:* Hinweis im Modul des Dienstes, Text in `.primary`, nur das
+- *Fehler:* Hinweis im Abschnitt des Dienstes, Text in `.primary`, nur das
   Warndreieck in `warning`. Liegen ältere Werte vor, bleiben sie stehen und der
   Hinweis steht darunter.
 - *Leer:* Ein Satz, was passiert, kein leeres Diagramm.
@@ -207,12 +217,9 @@ keine Einzelmessungen.** Lesbarkeit geht vor Messgenauigkeit.
 
 ## 6. Layout
 
-- Fensterbreite 400 pt, Außenabstand 12 pt, Abstand zwischen Modulen 8 pt.
-- Kopfzeile und Statuszeile sind um den Modul-Innenabstand eingerückt, damit ihr
-  Text auf einer Kante mit dem Inhalt der Module steht.
-- Verschachtelte Radien: Die Formel *innen = außen − Abstand* ergäbe beim
-  Fensterradius und 12 pt Abstand einen Wert unter 2. Die Module behalten deshalb
-  ihre eigenen 10 pt.
+- Fensterbreite 400 pt. Aller Text und alle Trennlinien beginnen 16 pt vom Rand,
+  wie in Apples Menüs; nichts reicht bis an den Fensterrand.
+- Keine eigenen Radien: Das Fenster rundet das Glas selbst.
 
 ## 7. Bewegung
 
@@ -226,27 +233,30 @@ Sonst keine Animation. Bei „Bewegung reduzieren" entfällt auch diese.
 
 **Do**
 - Neue Werte als Token in `enum Theme` anlegen, nicht als Zahl in einer View.
-- Neue Inhalte in ein vorhandenes Modul oder ein neues `Platter` setzen.
+- Neue Inhalte in einen vorhandenen Abschnitt oder eine neue `MenuSection` setzen.
+- Das Fenster mit dem echten Glas prüfen, nicht nur offscreen: Offscreen-Renderings
+  zeigen das Material nicht.
 - Für jeden Zustand (Laden, Fehler, leer) eine Darstellung vorsehen.
 - Vorher/Nachher hell und dunkel rendern, bevor eine Änderung veröffentlicht wird.
 
 **Don't**
 - Keine `.caption`- oder `.caption2`-Schrift für Inhalte (10 pt).
-- Keine Dienstfarbe in Orange, Rot oder Grün.
-- Keine Graustufen-Balken: Ein Balken trägt die Farbe seines Dienstes oder ein Signal.
+- Keine selbst gezeichneten Dienstlogos und keine erfundenen Dienstfarben.
+- Keine Graustufen-Balken: Ein Balken trägt die Farbe seines Dienstes oder Rot.
 - Keine Signalfarbe als Textfarbe.
-- Keine Trennlinien zwischen Modulen, keine Schlagschatten.
+- Keine Flächen hinter Abschnitten, keine Schlagschatten.
 - Keine bekannten Limitnamen auf Englisch; unbekannte nicht raten, sondern
   unverändert zeigen (siehe 4).
 - Kein Hinweistext auf einer Diagrammlinie.
 
 ## 9. Kurzbrief für KI-Agenten
 
-> Natives macOS-Menüleistenfenster, 400 pt breit. Module wie im Kontrollzentrum:
-> `primary` 5 % Fläche, 8 % Haarlinie, Radius 10. Systemtextstile, nie unter
-> 11 pt; Prozentwert 15 pt halbfett mit gleich breiten Ziffern; sekundärer Text
-> `primary` 72 %. Jeder Dienst hat seine Farbe – Claude Lila, Codex Blau – im
-> 24-pt-Kreis mit weißem Symbol, in den Balken und im Verlauf; Orange ≤ 50 %, Rot
-> ≤ 20 % übernehmen die Balken; nie farbiger Text. Verlauf grob (10-Minuten-Werte,
+> Natives macOS-Menüleistenfenster, 400 pt breit. Abschnitte direkt auf dem Glas
+> wie in Apples WLAN-Menü, 16 pt eingerückt, getrennt durch `primary`-12-%-Linien;
+> dunkel 30 % Schwarz über dem Glas. Systemtextstile, nie unter 11 pt; Prozentwert
+> 15 pt halbfett mit gleich breiten Ziffern; sekundärer Text `primary` 72 %. Jeder
+> Dienst mit Original-App-Icon (28 pt, zur Laufzeit gelesen) und Markenfarbe –
+> Claude #D97757, Codex #647AF8 – in Balken und Verlauf; Rot ≤ 20 % übernimmt den
+> Balken; nie farbiger Text. Verlauf grob (10-Minuten-Werte,
 > Lücken blass überbrückt, Resets am echten Zeitpunkt), Endmarken Kreis/Quadrat,
 > direkt beschriftet. Alles deutsch, Werte in `enum Theme`.

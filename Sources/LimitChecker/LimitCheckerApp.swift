@@ -1,5 +1,6 @@
 import Accessibility
 import Foundation
+import ImageIO
 import SwiftUI
 
 @main
@@ -123,10 +124,28 @@ enum ServiceIcons {
         case .appResource(let bundleID, let light, let darkName):
             image = appURL(bundleID)
                 .flatMap { Bundle(url: $0)?.url(forResource: dark ? darkName : light, withExtension: "png") }
-                .flatMap { NSImage(contentsOf: $0) }
+                .flatMap { downsampled($0, points: Theme.iconSize) }
         }
         if let image { cache[key] = image }
         return image
+    }
+
+    /// The resource holds a single 1024 px image. SwiftUI shrinks that so coarsely that the
+    /// cloud's glossy rim breaks into white specks, so ImageIO filters it down to each scale.
+    private static func downsampled(_ url: URL, points: CGFloat) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let image = NSImage(size: NSSize(width: points, height: points))
+        for scale in [1, 2, 3] as [CGFloat] {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: points * scale,
+            ]
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { continue }
+            let rep = NSBitmapImageRep(cgImage: thumbnail)
+            rep.size = image.size
+            image.addRepresentation(rep)
+        }
+        return image.representations.isEmpty ? nil : image
     }
 
     private static func appURL(_ bundleID: String) -> URL? {

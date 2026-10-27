@@ -2,6 +2,10 @@
   <img src="logo/limitchecker-logo.png" width="180" alt="LimitChecker logo">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot.png" width="480" alt="The LimitChecker window: Claude Code and Codex with their remaining five-hour and weekly limits, reset times, and a twelve-hour history chart">
+</p>
+
 # LimitChecker
 
 LimitChecker is a private macOS menu bar app for viewing Claude Code and Codex

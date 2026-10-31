@@ -86,6 +86,18 @@ class LimitParserTests(unittest.TestCase):
             "Claude Code ist nicht angemeldet. Öffne Claude Code im Terminal und melde dich an.",
         )
 
+    def test_reports_claude_expired_login(self):
+        for output in (
+            "OAuth token revoked · Please run /login",
+            "OAuth refresh token is no longer valid; run /login to re-authenticate",
+            "Your session expired, run /login to renew",
+        ):
+            with self.subTest(output=output):
+                result = self.parse("claude", output)
+
+                self.assertFalse(result["ok"])
+                self.assertIn("nicht angemeldet", result["error"])
+
     def test_reports_codex_login_requirement(self):
         result = self.parse("codex", "You are not logged in. Run codex login.")
 

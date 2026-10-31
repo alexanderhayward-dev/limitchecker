@@ -117,6 +117,8 @@ enum UsageFailure {
         let indicators = [
             "notloggedin", "loginrequired", "pleaselogin", "signintocontinue",
             "authenticationrequired", "runclaudelogin", "runcodexlogin",
+            // Claude Code's "OAuth token revoked · Please run /login" and its variants.
+            "run/login",
         ]
         guard indicators.contains(where: { compact.contains($0) }) else { return nil }
         return "\(service) ist nicht angemeldet. Öffne \(service) im Terminal und melde dich an."
